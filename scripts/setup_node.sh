@@ -21,7 +21,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r /home/node/iot-dpos-blockchain/requirements.txt
 
 # Create .env file
 cat > .env << EOF

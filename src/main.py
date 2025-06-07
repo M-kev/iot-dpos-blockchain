@@ -7,10 +7,10 @@ import uvicorn
 import threading
 import socket
 
-from blockchain.block import Block
-from blockchain.dpos import DPoS
-from blockchain.genesis import GenesisBlock
-from mqtt.client import MQTTClient
+from consensus.block import Block
+from consensus.dpos import DPoS
+from consensus.genesis import GenesisBlock
+from network.mqtt_client import MQTTClient
 from energy.monitor import EnergyMonitor
 from monitoring.metrics import BlockchainMetrics
 from monitoring.dashboard import app as dashboard_app

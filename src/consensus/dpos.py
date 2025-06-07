@@ -76,4 +76,5 @@ class DPoS:
             'active_delegates': len(self.delegates),
             'block_time': self.block_time,
             'validator_list': self.delegates
-        } 
+        }
+    # ... existing code ... 
