@@ -1,6 +1,5 @@
 from collections import defaultdict
 import time
-from typing import Dict, Any, Optional, List
 from storage.sqlite_storage import SQLiteStorage
 from consensus.block import Block
 
@@ -50,7 +49,7 @@ class BlockchainMetrics:
         # For future use or specific tracking
         pass
 
-    def record_node_metrics(self, node_id: str, metrics_data: Dict[str, Any]):
+    def record_node_metrics(self, node_id: str, metrics_data: dict):
         """Record and update metrics for a specific node."""
         self.all_nodes_metrics[node_id].update({
             'cpu_percent': metrics_data.get('cpu_percent', 0),
@@ -71,13 +70,12 @@ class BlockchainMetrics:
         if 'current_network_validator' in metrics_data:
             self.current_network_validator = metrics_data['current_network_validator']
 
-
-    def get_power_metrics(self) -> Dict[str, float]:
+    def get_power_metrics(self) -> dict:
         # This should return aggregated power or local if for single node dashboard
         total_power = sum(node_metrics['power_usage'] for node_metrics in self.all_nodes_metrics.values())
         return {"total_power": total_power}
 
-    def get_blockchain_metrics(self) -> Dict[str, Any]:
+    def get_blockchain_metrics(self) -> dict:
         # This will be refined, currently mostly local node's perspective
         total_blocks = self.get_chain_length()
         return {
@@ -87,7 +85,7 @@ class BlockchainMetrics:
             "total_blocks": total_blocks # Updated to use get_chain_length
         }
 
-    def get_system_metrics(self) -> Dict[str, Any]:
+    def get_system_metrics(self) -> dict:
         # This now returns a dict of all nodes' system metrics
         return {
             node_id: {
@@ -108,11 +106,11 @@ class BlockchainMetrics:
         approx_block_size_bytes = 1024 
         return total_blocks * approx_block_size_bytes # Updated to use total_blocks from get_chain_length
 
-    def get_all_validators_metrics(self) -> Dict[str, float]:
+    def get_all_validators_metrics(self) -> dict:
         """Return the current view of all validators and their stakes."""
         return self.network_validators
 
-    def get_current_elected_validator(self) -> Optional[str]:
+    def get_current_elected_validator(self) -> str | None:
         """Return the current elected validator."""
         return self.current_network_validator
 
@@ -124,11 +122,11 @@ class BlockchainMetrics:
         """Return the current length of the blockchain from storage."""
         return self.storage.get_chain_length()
 
-    def get_latest_block_hash(self) -> Optional[str]:
+    def get_latest_block_hash(self) -> str | None:
         """Return the hash of the latest block from storage."""
         latest_block = self.storage.get_latest_block()
         return latest_block.hash if latest_block else None
 
-    def get_blocks_from_storage(self, start_index: int, end_index: int) -> List[Block]:
+    def get_blocks_from_storage(self, start_index: int, end_index: int) -> list:
         """Retrieve a range of blocks from storage."""
         return self.storage.get_blocks(start_index, end_index) 
