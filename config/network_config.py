@@ -24,37 +24,37 @@ MQTT_BROKERS = [
 RASPBERRY_PI_NODES = [
     {
         "id": "pi_node_1",
-        "ip": os.getenv("PI_NODE_1_IP", "192.168.100.101"),
+        "ip": os.getenv("PI_NODE_1_IP", "192.168.100.230"),
         "dashboard_port": 8001,
         "stake": 1000,
     },
     {
         "id": "pi_node_2",
-        "ip": os.getenv("PI_NODE_2_IP", "192.168.100.102"),
+        "ip": os.getenv("PI_NODE_2_IP", "192.168.100.226"),
         "dashboard_port": 8002,
         "stake": 1000,
     },
     {
         "id": "pi_node_3",
-        "ip": os.getenv("PI_NODE_3_IP", "192.168.100.103"),
+        "ip": os.getenv("PI_NODE_3_IP", "192.168.100.227"),
         "dashboard_port": 8003,
         "stake": 1000,
     },
     {
         "id": "pi_node_4",
-        "ip": os.getenv("PI_NODE_4_IP", "192.168.100.104"),
+        "ip": os.getenv("PI_NODE_4_IP", "192.168.100.228"),
         "dashboard_port": 8004,
         "stake": 1000,
     },
     {
         "id": "pi_node_5",
-        "ip": os.getenv("PI_NODE_5_IP", "192.168.100.105"),
+        "ip": os.getenv("PI_NODE_5_IP", "192.168.100.229"),
         "dashboard_port": 8005,
         "stake": 1000,
     },
     {
         "id": "pi_node_6",
-        "ip": os.getenv("PI_NODE_6_IP", "192.168.1.106"),
+        "ip": os.getenv("PI_NODE_6_IP", "192.168.100.230"),
         "dashboard_port": 8006,
         "stake": 1000,
     }

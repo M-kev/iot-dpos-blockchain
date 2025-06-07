@@ -36,11 +36,11 @@ class BlockchainNode:
             raise ValueError(f"Invalid node ID: {self.node_id}")
         
         # Initialize components
-        self.dpos = DPoS()
         self.energy_monitor = EnergyMonitor()
         self.storage = SQLiteStorage(db_path=f"blockchain_data/{self.node_id}_blockchain.db")
         self.metrics = BlockchainMetrics(self.node_id, self.storage)
         set_metrics_instance(self.metrics)
+        self.dpos = DPoS(metrics=self.metrics)
         self.mqtt_client = MQTTClient(self.node_id, self.node_config)
         
         # Initialize blockchain with genesis block

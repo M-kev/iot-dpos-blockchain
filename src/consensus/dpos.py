@@ -2,15 +2,18 @@ from typing import List, Dict, Any, Optional
 import time
 import json
 from .block import Block
+from monitoring.metrics import BlockchainMetrics
 
 class DPoS:
-    def __init__(self, max_validators: int = 21):
+    def __init__(self, max_validators: int = 21, metrics: Optional[BlockchainMetrics] = None):
         self.max_validators = max_validators
         self.validators: Dict[str, float] = {}  # address -> stake
         self.delegates: List[str] = []
         self.block_time = 3  # seconds
         self.last_block_time = 0
         self.energy_threshold = 0.8  # Maximum energy usage threshold
+        self.metrics = metrics  # Store the metrics instance
+        self.liveness_threshold = 30 # seconds, if a node hasn't reported metrics in this time, consider it offline
         
     def add_validator(self, address: str, stake: float) -> bool:
         """Add a new validator with their stake."""
@@ -38,16 +41,29 @@ class DPoS:
         self.delegates = [v[0] for v in sorted_validators[:self.max_validators]]
         
     def get_current_validator(self) -> Optional[str]:
-        """Get the current validator based on time."""
+        """Get the current validator based on time, considering liveness."""
         if not self.delegates:
             return None
-            
+
+        active_delegates = []
+        if self.metrics:
+            current_time = time.time()
+            for delegate_id in self.delegates:
+                node_metrics = self.metrics.all_nodes_metrics.get(delegate_id)
+                if node_metrics and (current_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
+                    active_delegates.append(delegate_id)
+        else:
+            active_delegates = self.delegates
+
+        if not active_delegates:
+            return None
+
         current_time = time.time()
         if current_time - self.last_block_time < self.block_time:
             return None
-            
+
         slot = int((current_time - self.last_block_time) / self.block_time)
-        return self.delegates[slot % len(self.delegates)]
+        return active_delegates[slot % len(active_delegates)]
         
     def validate_block(self, block: Block, energy_usage: float) -> bool:
         """Validate a block considering energy efficiency."""
