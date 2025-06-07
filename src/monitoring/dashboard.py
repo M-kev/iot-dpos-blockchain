@@ -2,10 +2,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
-from typing import Dict, Any
+from typing import Dict, Any, List
 import json
 import os
 from .metrics import BlockchainMetrics
+from consensus.dpos import DPoS # Import DPoS to access its validator stats
 
 app = FastAPI(title="Blockchain Dashboard")
 
@@ -18,8 +19,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize metrics
-metrics = BlockchainMetrics()
+# Global variable for the metrics instance, to be set by main.py
+metrics: BlockchainMetrics = None
+
+def set_metrics_instance(metrics_obj: BlockchainMetrics):
+    global metrics
+    metrics = metrics_obj
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -43,6 +48,19 @@ async def get_dashboard():
                 height: 300px;
                 margin-bottom: 20px;
             }
+            .node-card .card-body {
+                padding: 10px;
+            }
+            .node-card .card-text {
+                margin-bottom: 5px;
+            }
+            .node-list-container {
+                max-height: 400px;
+                overflow-y: auto;
+                border: 1px solid #e0e0e0;
+                padding: 10px;
+                border-radius: 5px;
+            }
         </style>
     </head>
     <body>
@@ -61,8 +79,8 @@ async def get_dashboard():
                 <div class="col-md-6">
                     <div class="card metric-card">
                         <div class="card-body">
-                            <h5 class="card-title">Power Usage</h5>
-                            <p class="card-text" id="power-usage">Loading...</p>
+                            <h5 class="card-title">Overall Power Usage</h5>
+                            <p class="card-text" id="overall-power-usage">Loading...</p>
                         </div>
                     </div>
                 </div>
@@ -72,7 +90,45 @@ async def get_dashboard():
                 <div class="col-md-6">
                     <div class="card metric-card">
                         <div class="card-body">
-                            <h5 class="card-title">Transactions per Second</h5>
+                            <h5 class="card-title">Current Block Count</h5>
+                            <p class="card-text" id="block-count">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card metric-card">
+                        <div class="card-body">
+                            <h5 class="card-title">Current Validator</h5>
+                            <p class="card-text" id="current-validator">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card metric-card">
+                        <div class="card-body">
+                            <h5 class="card-title">All Validators and Stakes</h5>
+                            <div class="node-list-container" id="validators-list">
+                                <!-- Validators will be rendered here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <h2 class="mt-4 mb-3">Individual Node Metrics</h2>
+            <div class="row" id="individual-node-metrics-container">
+                <!-- Individual node cards will be rendered here -->
+            </div>
+
+            <h2 class="mt-4 mb-3">Blockchain Metrics Trends</h2>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card metric-card">
+                        <div class="card-body">
+                            <h5 class="card-title">Transactions per Second (TPS)</h5>
                             <div class="chart-container">
                                 <canvas id="tps-chart"></canvas>
                             </div>
@@ -95,16 +151,6 @@ async def get_dashboard():
                 <div class="col-md-6">
                     <div class="card metric-card">
                         <div class="card-body">
-                            <h5 class="card-title">System Resources</h5>
-                            <div class="chart-container">
-                                <canvas id="resources-chart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="card metric-card">
-                        <div class="card-body">
                             <h5 class="card-title">Block Intervals</h5>
                             <div class="chart-container">
                                 <canvas id="block-interval-chart"></canvas>
@@ -116,74 +162,103 @@ async def get_dashboard():
         </div>
 
         <script>
-            // Initialize charts
-            const tpsChart = new Chart(document.getElementById('tps-chart'), {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'TPS',
-                        data: [],
-                        borderColor: 'rgb(75, 192, 192)',
-                        tension: 0.1
-                    }]
-                }
-            });
+            // Chart instances (re-initialize if not already done)
+            let tpsChart, consensusChart, blockIntervalChart;
 
-            const consensusChart = new Chart(document.getElementById('consensus-chart'), {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Consensus Time (ms)',
-                        data: [],
-                        borderColor: 'rgb(255, 99, 132)',
-                        tension: 0.1
-                    }]
-                }
-            });
+            function initializeCharts() {
+                tpsChart = new Chart(document.getElementById('tps-chart'), {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'TPS',
+                            data: [],
+                            borderColor: 'rgb(75, 192, 192)',
+                            tension: 0.1
+                        }]
+                    }
+                });
 
-            const resourcesChart = new Chart(document.getElementById('resources-chart'), {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'CPU Usage (%)',
-                        data: [],
-                        borderColor: 'rgb(54, 162, 235)',
-                        tension: 0.1
-                    }, {
-                        label: 'Memory Usage (%)',
-                        data: [],
-                        borderColor: 'rgb(255, 206, 86)',
-                        tension: 0.1
-                    }]
-                }
-            });
+                consensusChart = new Chart(document.getElementById('consensus-chart'), {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Consensus Time (ms)',
+                            data: [],
+                            borderColor: 'rgb(255, 99, 132)',
+                            tension: 0.1
+                        }]
+                    }
+                });
 
-            const blockIntervalChart = new Chart(document.getElementById('block-interval-chart'), {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Block Interval (s)',
-                        data: [],
-                        borderColor: 'rgb(153, 102, 255)',
-                        tension: 0.1
-                    }]
-                }
-            });
+                blockIntervalChart = new Chart(document.getElementById('block-interval-chart'), {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Block Interval (s)',
+                            data: [],
+                            borderColor: 'rgb(153, 102, 255)',
+                            tension: 0.1
+                        }]
+                    }
+                });
+            }
 
-            // Update metrics every second
+            // Call initializeCharts once DOM is ready
+            document.addEventListener('DOMContentLoaded', initializeCharts);
+
             function updateMetrics() {
                 fetch('/api/metrics')
                     .then(response => response.json())
                     .then(data => {
-                        // Update power usage
-                        document.getElementById('power-usage').textContent = 
+                        // Overall Metrics
+                        document.getElementById('overall-power-usage').textContent = 
                             `Total: ${data.power_metrics.total_power.toFixed(2)}W`;
+                        document.getElementById('block-count').textContent = data.blockchain_metrics.total_blocks;
+                        document.getElementById('current-validator').textContent = data.current_elected_validator || 'N/A';
 
-                        // Update charts
+                        // Update Validators List
+                        const validatorsList = document.getElementById('validators-list');
+                        validatorsList.innerHTML = ''; // Clear previous
+                        const sortedValidators = Object.entries(data.all_validators_metrics)
+                                                    .sort(([, stakeA], [, stakeB]) => stakeB - stakeA);
+                        if (sortedValidators.length > 0) {
+                            sortedValidators.forEach(([nodeId, stake]) => {
+                                const p = document.createElement('p');
+                                p.textContent = `${nodeId}: ${stake.toFixed(2)} stake`;
+                                validatorsList.appendChild(p);
+                            });
+                        } else {
+                            validatorsList.textContent = 'No validators found.';
+                        }
+
+                        // Update Individual Node Metrics
+                        const individualNodeMetricsContainer = document.getElementById('individual-node-metrics-container');
+                        individualNodeMetricsContainer.innerHTML = ''; // Clear previous
+                        for (const nodeId in data.system_metrics) {
+                            const nodeData = data.system_metrics[nodeId];
+                            const colDiv = document.createElement('div');
+                            colDiv.className = 'col-md-4';
+                            colDiv.innerHTML = `
+                                <div class="card metric-card node-card">
+                                    <div class="card-body">
+                                        <h6 class="card-title">${nodeId}</h6>
+                                        <p class="card-text">CPU: ${nodeData.cpu_percent.toFixed(1)}%</p>
+                                        <p class="card-text">Mem: ${nodeData.memory_percent.toFixed(1)}%</p>
+                                        <p class="card-text">Temp: ${nodeData.temperature.toFixed(1)}°C</p>
+                                        <p class="card-text">Power: ${nodeData.power_usage.toFixed(2)}W</p>
+                                        <p class="card-text">Blocks: ${nodeData.block_count}</p>
+                                        <p class="card-text">Pending TXs: ${nodeData.pending_transactions}</p>
+                                        <p class="card-text">Stake: ${data.all_validators_metrics[nodeId] || 0}</p>
+                                    </div>
+                                </div>
+                            `;
+                            individualNodeMetricsContainer.appendChild(colDiv);
+                        }
+
+                        // Update Charts (existing logic, simplified as all data comes from single fetch)
                         const timestamp = new Date().toLocaleTimeString();
                         
                         // TPS Chart
@@ -206,17 +281,6 @@ async def get_dashboard():
                         }
                         consensusChart.update();
 
-                        // Resources Chart
-                        resourcesChart.data.labels.push(timestamp);
-                        resourcesChart.data.datasets[0].data.push(data.system_metrics.cpu_percent);
-                        resourcesChart.data.datasets[1].data.push(data.system_metrics.memory_percent);
-                        if (resourcesChart.data.labels.length > 20) {
-                            resourcesChart.data.labels.shift();
-                            resourcesChart.data.datasets[0].data.shift();
-                            resourcesChart.data.datasets[1].data.shift();
-                        }
-                        resourcesChart.update();
-
                         // Block Interval Chart
                         blockIntervalChart.data.labels.push(timestamp);
                         blockIntervalChart.data.datasets[0].data.push(
@@ -227,7 +291,8 @@ async def get_dashboard():
                             blockIntervalChart.data.datasets[0].data.shift();
                         }
                         blockIntervalChart.update();
-                    });
+                    })
+                    .catch(error => console.error('Error fetching metrics:', error));
             }
 
             // Update metrics every second
@@ -239,12 +304,21 @@ async def get_dashboard():
 
 @app.get("/api/metrics")
 async def get_metrics() -> Dict[str, Any]:
-    """Get all metrics."""
+    """Get all aggregated metrics from BlockchainMetrics."""
+    # Ensure metrics instance is set before trying to use it
+    if metrics is None:
+        raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
+
     return {
         "consensus_protocol": "DPoS",
         "power_metrics": metrics.get_power_metrics(),
-        "blockchain_metrics": metrics.get_blockchain_metrics(),
-        "system_metrics": metrics.get_system_metrics(),
+        "blockchain_metrics": {
+            **metrics.get_blockchain_metrics(),
+            "total_blocks": 0 # Placeholder for now, to be fetched from storage
+        },
+        "system_metrics": metrics.get_system_metrics(), # This now returns all nodes' metrics
+        "all_validators_metrics": metrics.get_all_validators_metrics(),
+        "current_elected_validator": metrics.get_current_elected_validator(),
         "blockchain_size": metrics.get_blockchain_size()
     }
 
@@ -253,17 +327,16 @@ async def get_consensus_protocol() -> Dict[str, str]:
     """Get consensus protocol information."""
     return {"protocol": "DPoS"}
 
-@app.get("/api/power-usage")
-async def get_power_usage() -> Dict[str, float]:
-    """Get power usage metrics."""
-    return metrics.get_power_metrics()
-
 @app.get("/api/blockchain-metrics")
 async def get_blockchain_metrics() -> Dict[str, Any]:
     """Get blockchain-specific metrics."""
+    # Ensure metrics instance is set before trying to use it
+    if metrics is None:
+        raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
     return metrics.get_blockchain_metrics()
 
 @app.get("/api/system-metrics")
 async def get_system_metrics() -> Dict[str, Any]:
     """Get system resource metrics."""
+    return metrics.get_system_metrics() 
     return metrics.get_system_metrics() 

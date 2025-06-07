@@ -2,6 +2,9 @@ import sqlite3
 from typing import Any, Dict, List
 import json
 
+# Assuming Block class is available in the consensus module
+from consensus.block import Block
+
 class SQLiteStorage:
     def __init__(self, db_path: str = 'blockchain.db'):
         self.db_path = db_path
@@ -22,20 +25,20 @@ class SQLiteStorage:
         conn.commit()
         conn.close()
 
-    def save_block(self, block: Dict[str, Any]):
+    def save_block(self, block: Block):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        c.execute('INSERT INTO blocks (block_data) VALUES (?)', (json.dumps(block),))
+        c.execute('INSERT INTO blocks (block_data) VALUES (?)', (json.dumps(block.to_dict()),))
         conn.commit()
         conn.close()
 
-    def get_blocks(self) -> List[Dict[str, Any]]:
+    def get_blocks(self) -> List[Block]:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        c.execute('SELECT block_data FROM blocks')
+        c.execute('SELECT block_data FROM blocks ORDER BY id ASC')
         rows = c.fetchall()
         conn.close()
-        return [json.loads(row[0]) for row in rows]
+        return [Block.from_dict(json.loads(row[0])) for row in rows]
 
     def save_state(self, key: str, value: Any):
         conn = sqlite3.connect(self.db_path)

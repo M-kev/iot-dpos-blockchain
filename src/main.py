@@ -13,7 +13,8 @@ from consensus.genesis import GenesisBlock
 from network.mqtt_client import MQTTClient
 from energy.monitor import EnergyMonitor
 from monitoring.metrics import BlockchainMetrics
-from monitoring.dashboard import app as dashboard_app
+from monitoring.dashboard import app as dashboard_app, set_metrics_instance
+from storage.sqlite_storage import SQLiteStorage
 from config.network_config import (
     get_node_config,
     RASPBERRY_PI_SETTINGS,
@@ -35,7 +36,9 @@ class BlockchainNode:
         self.dpos = DPoS()
         self.energy_monitor = EnergyMonitor()
         self.metrics = BlockchainMetrics()
+        set_metrics_instance(self.metrics)
         self.mqtt_client = MQTTClient(self.node_id, self.node_config)
+        self.storage = SQLiteStorage(db_path=f"blockchain_data/{self.node_id}_blockchain.db")
         
         # Initialize blockchain with genesis block
         self.blocks = []
@@ -55,24 +58,41 @@ class BlockchainNode:
         
     def _initialize_blockchain(self) -> None:
         """Initialize blockchain with genesis block and stake distribution."""
-        # Load or create genesis block
-        genesis = GenesisBlock()
-        genesis_block = genesis.load_genesis_block()
+        # Load blocks from storage
+        stored_blocks = self.storage.get_blocks()
         
-        # Verify genesis block
-        if not genesis.verify_genesis_block(genesis_block):
-            raise ValueError("Invalid genesis block")
+        if stored_blocks:
+            self.blocks = stored_blocks
+            print(f"Loaded {len(self.blocks)} blocks from database.")
+        else:
+            # If no blocks in storage, create and save genesis block
+            genesis = GenesisBlock()
+            genesis_block = genesis.create_genesis_block()
             
-        # Add genesis block to chain
-        self.blocks.append(genesis_block)
+            # Verify genesis block (optional, but good practice)
+            if not genesis.verify_genesis_block(genesis_block):
+                raise ValueError("Invalid genesis block after creation")
+                
+            self.blocks.append(genesis_block)
+            self.storage.save_block(genesis_block)
+            print("Created and saved genesis block.")
         
-        # Initialize validators with initial stakes
-        initial_stakes = genesis.get_initial_stakes()
-        for node_id, stake in initial_stakes.items():
-            self.dpos.add_validator(node_id, stake)
-            
-        print(f"Blockchain initialized with genesis block. Initial stake: {initial_stakes[self.node_id]}")
-        
+        # Verify existing genesis block (loaded or newly created)
+        genesis_verifier = GenesisBlock()
+        if not genesis_verifier.verify_genesis_block(self.blocks[0]):
+            raise ValueError("Invalid genesis block found in chain.")
+
+        # Initialize validators with initial stakes from genesis block
+        # This assumes initial stakes are in the first transaction of the genesis block
+        initial_stakes_tx = next((tx for tx in self.blocks[0].transactions if tx.get('type') == 'stake_distribution'), None)
+        if initial_stakes_tx and 'data' in initial_stakes_tx:
+            initial_stakes = initial_stakes_tx['data']
+            for node_id, stake in initial_stakes.items():
+                self.dpos.add_validator(node_id, stake)
+            print(f"Blockchain initialized with genesis block. Current stake for {self.node_id}: {self.dpos.validators.get(self.node_id, 0)}")
+        else:
+            raise ValueError("Genesis block does not contain initial stake distribution.")
+
     def _start_dashboard(self):
         """Start the dashboard server."""
         uvicorn.run(
@@ -88,6 +108,7 @@ class BlockchainNode:
         self.mqtt_client.subscribe('transactions/new', self._handle_new_transaction)
         self.mqtt_client.subscribe('network/status', self._handle_network_status)
         self.mqtt_client.subscribe('validator/status', self._handle_validator_status)
+        self.mqtt_client.subscribe('metrics', self._handle_incoming_metrics)
         
     def _handle_new_block(self, block_data: Dict[str, Any]) -> None:
         """Handle incoming new block."""
@@ -103,6 +124,7 @@ class BlockchainNode:
             # Verify block chain
             if block.previous_hash == self.blocks[-1].hash:
                 self.blocks.append(block)
+                self.storage.save_block(block)
                 
                 # Record metrics
                 self.metrics.record_block_time(time.time() - block.timestamp)
@@ -133,6 +155,12 @@ class BlockchainNode:
                     validator['stake']
                 )
                 
+    def _handle_incoming_metrics(self, metrics_data: Dict[str, Any]) -> None:
+        """Handle incoming metrics from any node and record them."""
+        node_id = metrics_data.get('node_id')
+        if node_id:
+            self.metrics.record_node_metrics(node_id, metrics_data)
+        
     def _check_system_health(self) -> bool:
         """Check if the system is healthy enough to process blocks."""
         metrics = self.energy_monitor.get_system_metrics()
@@ -178,7 +206,9 @@ class BlockchainNode:
                     'node_id': self.node_id,
                     'block_count': len(self.blocks),
                     'pending_transactions': len(self.pending_transactions),
-                    'current_stake': self.dpos.validators.get(self.node_id, 0)
+                    'current_stake': self.dpos.validators.get(self.node_id, 0),
+                    'all_validators': self.dpos.validators,
+                    'current_network_validator': self.dpos.get_current_validator()
                 })
                 
                 # Check system health
