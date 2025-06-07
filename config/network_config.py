@@ -36,25 +36,25 @@ RASPBERRY_PI_NODES = [
     },
     {
         "id": "pi_node_3",
-        "ip": os.getenv("PI_NODE_3_IP", "192.168.100.227"),
+        "ip": os.getenv("PI_NODE_3_IP", "192.168.100.228"),
         "dashboard_port": 8003,
         "stake": 1000,
     },
     {
         "id": "pi_node_4",
-        "ip": os.getenv("PI_NODE_4_IP", "192.168.100.228"),
+        "ip": os.getenv("PI_NODE_4_IP", "192.168.100.229"),
         "dashboard_port": 8004,
         "stake": 1000,
     },
     {
         "id": "pi_node_5",
-        "ip": os.getenv("PI_NODE_5_IP", "192.168.100.229"),
+        "ip": os.getenv("PI_NODE_5_IP", "192.168.100.227"),
         "dashboard_port": 8005,
         "stake": 1000,
     },
     {
         "id": "pi_node_6",
-        "ip": os.getenv("PI_NODE_6_IP", "192.168.100.230"),
+        "ip": os.getenv("PI_NODE_6_IP", "192.168.100.235"),
         "dashboard_port": 8006,
         "stake": 1000,
     }
