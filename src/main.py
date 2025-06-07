@@ -341,9 +341,13 @@ class BlockchainNode:
     def _process_transactions(self) -> None:
         """Process pending transactions and create blocks if we're the current validator."""
         current_validator = self.dpos.get_current_validator()
-        
+        print(f"[PROCESS TX] Current DPoS validator: {current_validator}")
+        print(f"[PROCESS TX] Node ID: {self.node_id}")
+
         if current_validator == self.node_id:
+            print(f"[PROCESS TX] {self.node_id} is the current validator.")
             if self.pending_transactions:
+                print(f"[PROCESS TX] {len(self.pending_transactions)} pending transactions found.")
                 start_time = time.time()
                 
                 # Create new block
@@ -364,6 +368,7 @@ class BlockchainNode:
                 
                 # Publish new block
                 self.mqtt_client.publish_block(new_block.to_dict())
+                print(f"[PROCESS TX] Node {self.node_id} published new block: {new_block.hash}")
                 
                 # Publish validator status
                 self.mqtt_client.publish_validator_status({
@@ -375,6 +380,10 @@ class BlockchainNode:
                 
                 # Clear processed transactions
                 self.pending_transactions = self.pending_transactions[10:]
+            else:
+                print(f"[PROCESS TX] No pending transactions on {self.node_id}.")
+        else:
+            print(f"[PROCESS TX] {self.node_id} is not the current validator.")
 
 if __name__ == "__main__":
     node = BlockchainNode()
