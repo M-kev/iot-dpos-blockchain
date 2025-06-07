@@ -29,6 +29,9 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
+# Ensure static directory exists for dashboard
+mkdir -p static
+
 # Create .env file
 
 # Create systemd service file
