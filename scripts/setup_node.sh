@@ -44,7 +44,7 @@ After=network.target
 User=$USER
 WorkingDirectory=$HOME/iot-dpos-blockchain
 Environment="PATH=$HOME/iot-dpos-blockchain/venv/bin:/usr/bin"
-Environment="PYTHONPATH=$HOME/iot-dpos-blockchain/src"
+Environment="PYTHONPATH=$HOME/iot-dpos-blockchain:$HOME/iot-dpos-blockchain/src"
 ExecStart=$HOME/iot-dpos-blockchain/venv/bin/python $HOME/iot-dpos-blockchain/src/main.py
 Restart=always
 RestartSec=10

@@ -1,6 +1,7 @@
 import sqlite3
 from typing import Any, Dict, List, Optional
 import json
+import os
 
 # Assuming Block class is available in the consensus module
 from consensus.block import Block
@@ -11,6 +12,9 @@ class SQLiteStorage:
         self._init_db()
 
     def _init_db(self):
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         # Create tables for blocks and state if not exist
