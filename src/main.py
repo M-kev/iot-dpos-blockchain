@@ -292,7 +292,16 @@ class BlockchainNode:
             while True:
                 # Monitor system metrics
                 metrics = self.energy_monitor.get_system_metrics()
-                
+
+                # Add system metrics as a pending transaction
+                transaction = {
+                    'type': 'system_metrics',
+                    'timestamp': time.time(),
+                    'data': metrics,
+                    'node_id': self.node_id
+                }
+                self.pending_transactions.append(transaction)
+
                 # Publish metrics
                 self.mqtt_client.publish_metrics({
                     **metrics,

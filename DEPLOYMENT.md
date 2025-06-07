@@ -16,6 +16,7 @@ This guide provides step-by-step instructions for deploying the energy-efficient
 - MicroSD card (32GB recommended)
 - Power supply
 - Network connection
+- `python3-dev` (required for some Python packages)
 
 ## Network Setup
 
