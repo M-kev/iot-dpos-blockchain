@@ -173,19 +173,20 @@ class BlockchainNode:
         
         # Check temperature
         if metrics['temperature'] > RASPBERRY_PI_SETTINGS['cpu_throttle_temp']:
-            print("System temperature too high")
+            print(f"[HEALTH CHECK] System temperature too high: {metrics['temperature']}°C")
             return False
             
         # Check CPU usage
         if metrics['cpu_percent'] > RASPBERRY_PI_SETTINGS['max_cpu_usage']:
-            print("CPU usage too high")
+            print(f"[HEALTH CHECK] CPU usage too high: {metrics['cpu_percent']:.2f}%")
             return False
             
         # Check memory usage
         if metrics['memory_percent'] > RASPBERRY_PI_SETTINGS['max_memory_usage']:
-            print("Memory usage too high")
+            print(f"[HEALTH CHECK] Memory usage too high: {metrics['memory_percent']:.2f}%")
             return False
             
+        print(f"[HEALTH CHECK] System is healthy. CPU: {metrics['cpu_percent']:.2f}%, Mem: {metrics['memory_percent']:.2f}%, Temp: {metrics['temperature']}°C")
         return True
         
     async def _synchronize_chain(self) -> None:
