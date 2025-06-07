@@ -45,8 +45,8 @@ This guide provides step-by-step instructions for deploying the energy-efficient
 
 2. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd <repository-name>
+   git clone https://github.com/M-kev/iot-dpos-blockchain.git
+   cd iot-dpos-blockchain
    ```
 
 3. Make the setup script executable:
@@ -77,8 +77,8 @@ This guide provides step-by-step instructions for deploying the energy-efficient
 
 2. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd <repository-name>
+   git clone https://github.com/M-kev/iot-dpos-blockchain.git
+   cd iot-dpos-blockchain
    ```
 
 3. Make the setup script executable:
