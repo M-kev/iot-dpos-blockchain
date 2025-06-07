@@ -1,7 +1,9 @@
 import os
 import time
 import json
-from typing import Dict, Any
+import asyncio
+import httpx
+from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 import uvicorn
 import threading
@@ -18,7 +20,8 @@ from storage.sqlite_storage import SQLiteStorage
 from config.network_config import (
     get_node_config,
     RASPBERRY_PI_SETTINGS,
-    NETWORK_SETTINGS
+    NETWORK_SETTINGS,
+    RASPBERRY_PI_NODES
 )
 
 class BlockchainNode:
@@ -35,7 +38,7 @@ class BlockchainNode:
         # Initialize components
         self.dpos = DPoS()
         self.energy_monitor = EnergyMonitor()
-        self.metrics = BlockchainMetrics()
+        self.metrics = BlockchainMetrics(self.node_id, self.storage)
         set_metrics_instance(self.metrics)
         self.mqtt_client = MQTTClient(self.node_id, self.node_config)
         self.storage = SQLiteStorage(db_path=f"blockchain_data/{self.node_id}_blockchain.db")
@@ -55,6 +58,9 @@ class BlockchainNode:
             target=self._start_dashboard,
             daemon=True
         )
+        
+        # Initialize HTTP client for chain synchronization
+        self.http_client = httpx.AsyncClient(timeout=NETWORK_SETTINGS['timeout'])
         
     def _initialize_blockchain(self) -> None:
         """Initialize blockchain with genesis block and stake distribution."""
@@ -182,6 +188,89 @@ class BlockchainNode:
             
         return True
         
+    async def _synchronize_chain(self) -> None:
+        """Synchronize the local blockchain with peer nodes."""
+        print("Starting chain synchronization...")
+        
+        # Get list of peer nodes (excluding self)
+        peer_nodes = [
+            node for node in RASPBERRY_PI_NODES 
+            if node['id'] != self.node_id
+        ]
+        
+        if not peer_nodes:
+            print("No peer nodes found for synchronization.")
+            return
+            
+        # Get local chain info
+        local_chain_length = len(self.blocks)
+        local_latest_hash = self.blocks[-1].hash if self.blocks else None
+        
+        print(f"Local chain length: {local_chain_length}, Latest hash: {local_latest_hash}")
+        
+        # Query each peer for their chain info
+        for peer in peer_nodes:
+            try:
+                peer_url = f"http://{peer['ip']}:{peer['dashboard_port']}/api/chain_info"
+                response = await self.http_client.get(peer_url)
+                
+                if response.status_code == 200:
+                    peer_info = response.json()
+                    peer_chain_length = peer_info['chain_length']
+                    peer_latest_hash = peer_info['latest_block_hash']
+                    
+                    print(f"Peer {peer['id']} - Chain length: {peer_chain_length}, Latest hash: {peer_latest_hash}")
+                    
+                    # If peer has a longer chain or different latest hash, sync with it
+                    if peer_chain_length > local_chain_length or (
+                        peer_chain_length == local_chain_length and 
+                        peer_latest_hash != local_latest_hash
+                    ):
+                        print(f"Chain divergence detected with peer {peer['id']}. Syncing...")
+                        await self._sync_with_peer(peer, local_chain_length)
+                        
+            except Exception as e:
+                print(f"Error querying peer {peer['id']}: {str(e)}")
+                continue
+                
+    async def _sync_with_peer(self, peer: Dict[str, Any], local_chain_length: int) -> None:
+        """Synchronize blocks with a specific peer."""
+        try:
+            # Request blocks from the peer
+            peer_url = f"http://{peer['ip']}:{peer['dashboard_port']}/api/blocks"
+            response = await self.http_client.get(
+                peer_url,
+                params={'start_index': local_chain_length, 'end_index': -1}  # -1 means get all remaining blocks
+            )
+            
+            if response.status_code == 200:
+                blocks_data = response.json()
+                print(f"Received {len(blocks_data)} blocks from peer {peer['id']}")
+                
+                # Process received blocks
+                for block_data in blocks_data:
+                    block = Block.from_dict(block_data)
+                    
+                    # Verify block
+                    if not self.dpos.validate_block(block, 0):  # Power usage not critical for sync
+                        print(f"Invalid block received from peer {peer['id']}")
+                        continue
+                        
+                    # Check if block already exists
+                    if any(b.hash == block.hash for b in self.blocks):
+                        continue
+                        
+                    # Verify block chain
+                    if block.previous_hash == self.blocks[-1].hash:
+                        self.blocks.append(block)
+                        self.storage.save_block(block)
+                        print(f"Added block {block.index} from peer {peer['id']}")
+                    else:
+                        print(f"Block chain verification failed for block {block.index}")
+                        
+        except Exception as e:
+            print(f"Error syncing with peer {peer['id']}: {str(e)}")
+            
     def start(self) -> None:
         """Start the blockchain node."""
         # Start dashboard
@@ -194,6 +283,10 @@ class BlockchainNode:
             
         print(f"Blockchain node {self.node_id} started")
         print(f"Current stake: {self.dpos.validators.get(self.node_id, 0)}")
+        
+        # Create event loop for async operations
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
         try:
             while True:
@@ -208,7 +301,9 @@ class BlockchainNode:
                     'pending_transactions': len(self.pending_transactions),
                     'current_stake': self.dpos.validators.get(self.node_id, 0),
                     'all_validators': self.dpos.validators,
-                    'current_network_validator': self.dpos.get_current_validator()
+                    'current_network_validator': self.dpos.get_current_validator(),
+                    'total_blocks': len(self.blocks),
+                    'latest_block_hash': self.blocks[-1].hash if self.blocks else None
                 })
                 
                 # Check system health
@@ -220,13 +315,19 @@ class BlockchainNode:
                 # Process pending transactions and create blocks if we're the current validator
                 self._process_transactions()
                 
+                # Run chain synchronization periodically
+                if time.time() % RASPBERRY_PI_SETTINGS['sync_interval'] < 1:
+                    loop.run_until_complete(self._synchronize_chain())
+                
                 time.sleep(1)  # Prevent excessive CPU usage
                 
         except KeyboardInterrupt:
             print("Shutting down...")
         finally:
             self.mqtt_client.disconnect()
-            
+            loop.run_until_complete(self.http_client.aclose())
+            loop.close()
+        
     def _process_transactions(self) -> None:
         """Process pending transactions and create blocks if we're the current validator."""
         current_validator = self.dpos.get_current_validator()

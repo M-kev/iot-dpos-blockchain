@@ -98,6 +98,17 @@ async def get_dashboard():
                 <div class="col-md-6">
                     <div class="card metric-card">
                         <div class="card-body">
+                            <h5 class="card-title">Blockchain Size</h5>
+                            <p class="card-text" id="blockchain-size">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card metric-card">
+                        <div class="card-body">
                             <h5 class="card-title">Current Validator</h5>
                             <p class="card-text" id="current-validator">Loading...</p>
                         </div>
@@ -217,6 +228,8 @@ async def get_dashboard():
                         document.getElementById('overall-power-usage').textContent = 
                             `Total: ${data.power_metrics.total_power.toFixed(2)}W`;
                         document.getElementById('block-count').textContent = data.blockchain_metrics.total_blocks;
+                        document.getElementById('blockchain-size').textContent = 
+                            `${(data.blockchain_size / (1024 * 1024)).toFixed(2)} MB`; // Convert bytes to MB
                         document.getElementById('current-validator').textContent = data.current_elected_validator || 'N/A';
 
                         // Update Validators List
@@ -314,13 +327,36 @@ async def get_metrics() -> Dict[str, Any]:
         "power_metrics": metrics.get_power_metrics(),
         "blockchain_metrics": {
             **metrics.get_blockchain_metrics(),
-            "total_blocks": 0 # Placeholder for now, to be fetched from storage
+            # "total_blocks": 0 # Placeholder for now, to be fetched from storage
         },
         "system_metrics": metrics.get_system_metrics(), # This now returns all nodes' metrics
         "all_validators_metrics": metrics.get_all_validators_metrics(),
         "current_elected_validator": metrics.get_current_elected_validator(),
         "blockchain_size": metrics.get_blockchain_size()
     }
+
+@app.get("/api/chain_info")
+async def get_chain_info() -> Dict[str, Any]:
+    """Return the length of the local blockchain and the hash of the latest block."""
+    if metrics is None:
+        raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
+    
+    chain_length = metrics.get_chain_length()
+    latest_block_hash = metrics.get_latest_block_hash()
+
+    return {
+        "chain_length": chain_length,
+        "latest_block_hash": latest_block_hash
+    }
+
+@app.get("/api/blocks")
+async def get_blocks(start_index: int, end_index: int) -> List[Dict[str, Any]]:
+    """Return a range of serialized blocks from the local blockchain."""
+    if metrics is None:
+        raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
+
+    blocks = metrics.get_blocks_from_storage(start_index, end_index)
+    return [block.to_dict() for block in blocks]
 
 @app.get("/api/consensus-protocol")
 async def get_consensus_protocol() -> Dict[str, str]:
