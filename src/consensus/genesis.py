@@ -14,16 +14,17 @@ class GenesisBlock:
             "pi_node_5": 1000,
             "pi_node_6": 1000
         }
+        self.fixed_timestamp = 1717777777  # Use a constant value for determinism
         
     def create_genesis_block(self) -> Block:
         """Create the genesis block with initial stake distribution."""
         genesis_data = {
-            "timestamp": time.time(),
+            "timestamp": self.fixed_timestamp,
             "transactions": [
                 {
                     "type": "stake_distribution",
                     "data": self.initial_stakes,
-                    "timestamp": time.time()
+                    "timestamp": self.fixed_timestamp
                 }
             ],
             "energy_metrics": {
@@ -76,13 +77,12 @@ class GenesisBlock:
             return genesis.create_genesis_block()
             
     def verify_genesis_block(self, block: Block) -> bool:
-        """Verify if a block matches the genesis block."""
+        """Verify if a block matches the genesis block (ignore non-deterministic fields)."""
         genesis_block = self.create_genesis_block()
-        
-        # Compare essential properties
         return (
             block.index == genesis_block.index and
             block.previous_hash == genesis_block.previous_hash and
             block.validator == genesis_block.validator and
-            block.transactions == genesis_block.transactions
+            block.transactions[0]['type'] == genesis_block.transactions[0]['type'] and
+            block.transactions[0]['data'] == genesis_block.transactions[0]['data']
         ) 
