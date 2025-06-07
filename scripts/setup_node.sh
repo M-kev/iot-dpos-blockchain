@@ -12,7 +12,7 @@ if [ $NODE_NUM -lt 1 ] || [ $NODE_NUM -gt 6 ]; then
     exit 1
 fi
 
-REPO_URL=<your-repo-url>  # <-- Replace with your actual repo URL
+REPO_URL=https://github.com/M-kev/iot-dpos-blockchain.git  # <-- Replace with your actual repo URL
 REPO_DIR="$HOME/iot-dpos-blockchain"
 
 # Clone the repository if not already present
@@ -30,17 +30,6 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # Create .env file
-cat > .env << EOF
-NODE_ID=pi_node_${NODE_NUM}
-MQTT_BROKER_1_HOST=192.168.1.10
-MQTT_BROKER_1_PORT=1883
-MQTT_BROKER_1_USER=broker1
-MQTT_BROKER_1_PASS=broker1pass
-MQTT_BROKER_2_HOST=192.168.1.11
-MQTT_BROKER_2_PORT=1883
-MQTT_BROKER_2_USER=broker2
-MQTT_BROKER_2_PASS=broker2pass
-EOF
 
 # Create systemd service file
 sudo tee /etc/systemd/system/blockchain-node.service > /dev/null << EOF
