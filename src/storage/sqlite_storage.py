@@ -1,5 +1,5 @@
 import sqlite3
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import json
 
 # Assuming Block class is available in the consensus module
@@ -32,13 +32,38 @@ class SQLiteStorage:
         conn.commit()
         conn.close()
 
-    def get_blocks(self) -> List[Block]:
+    def get_blocks(self, start_index: int = 0, end_index: int = -1) -> List[Block]:
+        """Get blocks within a range. If end_index is -1, get all blocks from start_index."""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        c.execute('SELECT block_data FROM blocks ORDER BY id ASC')
+        
+        if end_index == -1:
+            c.execute('SELECT block_data FROM blocks WHERE id > ? ORDER BY id ASC', (start_index,))
+        else:
+            c.execute('SELECT block_data FROM blocks WHERE id > ? AND id <= ? ORDER BY id ASC', 
+                     (start_index, end_index))
+            
         rows = c.fetchall()
         conn.close()
         return [Block.from_dict(json.loads(row[0])) for row in rows]
+
+    def get_chain_length(self) -> int:
+        """Get the total number of blocks in the chain."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('SELECT COUNT(*) FROM blocks')
+        count = c.fetchone()[0]
+        conn.close()
+        return count
+
+    def get_latest_block(self) -> Optional[Block]:
+        """Get the most recent block in the chain."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('SELECT block_data FROM blocks ORDER BY id DESC LIMIT 1')
+        row = c.fetchone()
+        conn.close()
+        return Block.from_dict(json.loads(row[0])) if row else None
 
     def save_state(self, key: str, value: Any):
         conn = sqlite3.connect(self.db_path)
