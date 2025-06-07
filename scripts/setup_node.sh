@@ -12,16 +12,22 @@ if [ $NODE_NUM -lt 1 ] || [ $NODE_NUM -gt 6 ]; then
     exit 1
 fi
 
-# Create project directory
-mkdir -p ~/blockchain_node
-cd ~/blockchain_node
+REPO_URL=<your-repo-url>  # <-- Replace with your actual repo URL
+REPO_DIR="$HOME/iot-dpos-blockchain"
 
-# Create virtual environment
+# Clone the repository if not already present
+if [ ! -d "$REPO_DIR/.git" ]; then
+    git clone $REPO_URL $REPO_DIR
+fi
+
+cd $REPO_DIR
+
+echo "Setting up Python virtual environment..."
 python3 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install -r /home/node/iot-dpos-blockchain/requirements.txt
+pip install -r requirements.txt
 
 # Create .env file
 cat > .env << EOF
@@ -37,16 +43,16 @@ MQTT_BROKER_2_PASS=broker2pass
 EOF
 
 # Create systemd service file
-sudo tee /etc/systemd/system/blockchain-node.service << EOF
+sudo tee /etc/systemd/system/blockchain-node.service > /dev/null << EOF
 [Unit]
 Description=Blockchain Node Service
 After=network.target
 
 [Service]
 User=$USER
-WorkingDirectory=$HOME/blockchain_node
-Environment="PATH=$HOME/blockchain_node/venv/bin"
-ExecStart=$HOME/blockchain_node/venv/bin/python src/main.py
+WorkingDirectory=$HOME/iot-dpos-blockchain
+Environment="PATH=$HOME/iot-dpos-blockchain/venv/bin"
+ExecStart=$HOME/iot-dpos-blockchain/venv/bin/python $HOME/iot-dpos-blockchain/src/main.py
 Restart=always
 RestartSec=10
 
