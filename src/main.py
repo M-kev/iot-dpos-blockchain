@@ -38,10 +38,10 @@ class BlockchainNode:
         # Initialize components
         self.dpos = DPoS()
         self.energy_monitor = EnergyMonitor()
+        self.storage = SQLiteStorage(db_path=f"blockchain_data/{self.node_id}_blockchain.db")
         self.metrics = BlockchainMetrics(self.node_id, self.storage)
         set_metrics_instance(self.metrics)
         self.mqtt_client = MQTTClient(self.node_id, self.node_config)
-        self.storage = SQLiteStorage(db_path=f"blockchain_data/{self.node_id}_blockchain.db")
         
         # Initialize blockchain with genesis block
         self.blocks = []
