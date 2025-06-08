@@ -177,17 +177,31 @@ class SQLiteStorage:
             print(f"[STORAGE] Error retrieving latest block: {e}")
             raise
 
-    def get_blocks(self, start_index: int, end_index: int) -> List[Block]:
-        """Get a range of blocks from the chain."""
+    def get_blocks(self, start_index: int = 0, end_index: int = -1) -> List[Block]:
+        """Get a range of blocks from the chain.
+        
+        Args:
+            start_index: The index of the first block to retrieve (inclusive)
+            end_index: The index of the last block to retrieve (inclusive). If -1, retrieves all blocks from start_index.
+        """
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('''
-                SELECT * FROM blocks 
-                WHERE "index" >= ? AND "index" <= ?
-                ORDER BY "index" ASC
-            ''', (start_index, end_index))
+            if end_index == -1:
+                # Get all blocks from start_index
+                cursor.execute('''
+                    SELECT * FROM blocks 
+                    WHERE "index" >= ?
+                    ORDER BY "index" ASC
+                ''', (start_index,))
+            else:
+                # Get blocks within the specified range
+                cursor.execute('''
+                    SELECT * FROM blocks 
+                    WHERE "index" >= ? AND "index" <= ?
+                    ORDER BY "index" ASC
+                ''', (start_index, end_index))
             
             blocks = []
             for row in cursor.fetchall():
