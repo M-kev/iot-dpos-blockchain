@@ -21,7 +21,9 @@ from config.network_config import (
     get_node_config,
     RASPBERRY_PI_SETTINGS,
     NETWORK_SETTINGS,
-    RASPBERRY_PI_NODES
+    RASPBERRY_PI_NODES,
+    MQTT_BROKERS,
+    MQTT_TOPICS
 )
 
 class BlockchainNode:
