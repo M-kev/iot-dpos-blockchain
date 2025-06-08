@@ -11,7 +11,7 @@ rm -rf ~/iot-dpos-blockchain/static
 
 # Remove SQLite database if it exists
 echo "Removing SQLite database..."
-rm -f ~/iot-dpos-blockchain/blockchain.db
+rm -f ~/iot-dpos-blockchain/data/blockchain.db
 
 # Remove any temporary files
 echo "Cleaning temporary files..."
