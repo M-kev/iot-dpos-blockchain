@@ -478,4 +478,4 @@ class BlockchainNode:
 
 if __name__ == "__main__":
     node = BlockchainNode()
-    node.start() 
+    asyncio.run(node.start())  # Use asyncio.run to execute the coroutine
