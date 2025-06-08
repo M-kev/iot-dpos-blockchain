@@ -334,6 +334,16 @@ class BlockchainNode:
                 # Monitor system metrics
                 metrics = self.energy_monitor.get_system_metrics()
 
+                # Record current node's own metrics for liveness tracking
+                self.metrics.record_node_metrics(self.node_id, {
+                    **metrics,
+                    'node_id': self.node_id,
+                    'timestamp': time.time(), # Use current time for local liveness
+                    'block_count': len(self.blocks),
+                    'pending_transactions': len(self.pending_transactions),
+                    'current_stake': self.dpos.validators.get(self.node_id, 0),
+                })
+
                 # Add system metrics as a pending transaction
                 transaction = {
                     'type': 'system_metrics',
@@ -347,7 +357,7 @@ class BlockchainNode:
                 self.mqtt_client.publish_metrics({
                     **metrics,
                     'node_id': self.node_id,
-                    'timestamp': time.time(),
+                    'timestamp': time.time(), # Ensure timestamp is included here
                     'block_count': len(self.blocks),
                     'pending_transactions': len(self.pending_transactions),
                     'current_stake': self.dpos.validators.get(self.node_id, 0),
