@@ -419,6 +419,15 @@ class BlockchainNode:
         
     def _process_transactions(self) -> None:
         """Process pending transactions and create blocks if we're the current validator."""
+        
+        # Record current node's own metrics for delegate selection and liveness
+        local_metrics = self.energy_monitor.get_system_metrics()
+        local_metrics['timestamp'] = time.time()
+        self.metrics.record_node_metrics(self.node_id, local_metrics)
+        
+        # Update delegates before selecting a validator
+        self.dpos._update_delegates() # This call will now ensure delegates are updated periodically
+
         # Get previous block's timestamp and index for deterministic validator selection
         previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 for genesis block
         previous_block_index = self.blocks[-1].index if self.blocks else -1 # Use -1 for genesis block
