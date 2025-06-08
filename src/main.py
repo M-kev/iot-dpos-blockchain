@@ -99,10 +99,25 @@ class BlockchainNode:
                 self.dpos.add_validator(node_id, stake)
             print(f"Blockchain initialized with genesis block. Current stake for {self.node_id}: {self.dpos.validators.get(self.node_id, 0)}")
             print(f"[INIT] DPoS validators populated: {self.dpos.validators}")
-            # Initialize delegates immediately after validators are populated
-            self.dpos._update_delegates(force_update=True)
         else:
             raise ValueError("Genesis block does not contain initial stake distribution.")
+
+        # NEW: Initialize all_nodes_metrics with initial validators and current timestamp to mark as 'live'
+        current_init_time = time.time()
+        for node_id in self.dpos.validators.keys():
+            self.metrics.all_nodes_metrics[node_id].update({
+                'node_id': node_id,
+                'timestamp': current_init_time, # Use current time for initial liveness
+                'cpu_percent': 0,
+                'memory_percent': 0,
+                'temperature': 0,
+                'power_usage': 0,
+                'block_count': 0,
+                'pending_transactions': 0,
+                'current_stake': self.dpos.validators.get(node_id, 0),
+                'is_validator': False,
+            })
+        print(f"[INIT] Initialized all_nodes_metrics with current time for validators' initial liveness: {current_init_time}")
 
     def _start_dashboard(self):
         """Start the dashboard server."""
@@ -322,171 +337,144 @@ class BlockchainNode:
         except Exception as e:
             print(f"Error syncing with peer {peer['id']}: {str(e)}")
             
-    def start(self) -> None:
-        """Start the blockchain node."""
-        # Start dashboard
-        self.dashboard_thread.start()
-        
-        # Connect to MQTT broker
-        if not self.mqtt_client.connect():
-            print("Failed to connect to MQTT broker")
-            return
-            
+    async def start(self) -> None:
+        """Start the blockchain node operations."""
         print(f"Blockchain node {self.node_id} started")
         print(f"Current stake: {self.dpos.validators.get(self.node_id, 0)}")
         
-        # Create event loop for async operations
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Start dashboard in a separate thread
+        self.dashboard_thread.start()
         
-        # Perform initial chain synchronization on startup
+        # Connect to MQTT broker(s)
+        await self.mqtt_client.connect()
+        
+        # Perform initial chain synchronization
         print("Performing initial chain synchronization...")
-        loop.run_until_complete(self._synchronize_chain())
-        print("Initial chain synchronization complete.")
+        await self._synchronize_chain()
 
-        # After initial sync, force update delegates to include active nodes
+        # Update delegates for the first time after sync, 
+        # ensuring self.metrics.all_nodes_metrics has initial values
         self.dpos._update_delegates(force_update=True)
-        print(f"[DPoS] Initial delegates set after sync: {self.dpos.delegates}")
 
-        try:
-            while True:
-                # Monitor system metrics
-                metrics = self.energy_monitor.get_system_metrics()
+        # Start periodic tasks
+        self.periodic_tasks = [
+            asyncio.create_task(self._publish_metrics_periodically()),
+            asyncio.create_task(self._process_transactions_periodically()),
+            asyncio.create_task(self._synchronize_chain_periodically())
+        ]
+        await asyncio.gather(*self.periodic_tasks)
 
-                # Record current node's own metrics for liveness tracking
-                self.metrics.record_node_metrics(self.node_id, {
-                    **metrics,
-                    'node_id': self.node_id,
-                    'timestamp': time.time(), # Use current time for local liveness
-                    'block_count': len(self.blocks),
-                    'pending_transactions': len(self.pending_transactions),
-                    'current_stake': self.dpos.validators.get(self.node_id, 0),
-                })
+    # Publish system metrics
+    async def _publish_metrics_periodically():
+        while True:
+            metrics = self.energy_monitor.get_system_metrics()
 
-                # Add system metrics as a pending transaction
-                transaction = {
-                    'type': 'system_metrics',
-                    'timestamp': time.time(),
-                    'data': metrics,
-                    'node_id': self.node_id
-                }
-                self.pending_transactions.append(transaction)
+            # Ensure the local node's own metrics are recorded with the latest timestamp
+            # This ensures that when other nodes receive our metrics, or when our own DPoS updates delegates,
+            # our liveness is correctly reflected.
+            local_metrics_for_record = {
+                'node_id': self.node_id,
+                'timestamp': time.time(), # Use current time for local liveness
+                'cpu_percent': metrics['cpu_percent'],
+                'memory_percent': metrics['memory_percent'],
+                'temperature': metrics['temperature'],
+                'power_usage': metrics['power_usage'],
+                'block_count': len(self.blocks),
+                'pending_transactions': len(self.pending_transactions),
+                'current_stake': self.dpos.validators.get(self.node_id, 0),
+            }
+            self.metrics.record_node_metrics(self.node_id, local_metrics_for_record)
 
-                # Publish metrics
-                self.mqtt_client.publish_metrics({
-                    **metrics,
-                    'node_id': self.node_id,
-                    'timestamp': time.time(), # Ensure timestamp is included here
-                    'block_count': len(self.blocks),
-                    'pending_transactions': len(self.pending_transactions),
-                    'current_stake': self.dpos.validators.get(self.node_id, 0),
-                    'all_validators': self.dpos.validators,
-                    'current_network_validator': self.dpos.get_current_validator(
-                        reference_index=self.blocks[-1].index
-                    ) if self.blocks else None,
-                    'total_blocks': len(self.blocks),
-                    'latest_block_hash': self.blocks[-1].hash if self.blocks else None
-                })
-                
-                # Periodically update DPoS delegates based on liveness
-                if time.time() % RASPBERRY_PI_SETTINGS['metrics_interval'] < 1: # Reuse metrics_interval for delegate updates
-                    self.dpos._update_delegates() # This call will now be rate-limited internally by DPoS
-                    print(f"[DPoS] Delegates updated. Active delegates: {self.dpos.delegates}")
+            # Prepare metrics for publishing over MQTT
+            metrics_to_publish = {
+                **local_metrics_for_record, # Use the already prepared and timestamped local metrics
+                'all_validators': self.dpos.validators,
+                'current_network_validator': self.dpos.get_current_validator(
+                    reference_index=self.blocks[-1].index
+                ) if self.blocks else None,
+                'total_blocks': len(self.blocks),
+                'latest_block_hash': self.blocks[-1].hash if self.blocks else None
+            }
 
-                # Check system health
+            self.mqtt_client.publish_metrics(metrics_to_publish)
+            print(f"[METRICS] Node {self.node_id} published metrics. Timestamp: {metrics_to_publish['timestamp']}")
+
+            # After publishing, update delegates to ensure our local view is fresh
+            self.dpos._update_delegates()
+
+            await asyncio.sleep(RASPBERRY_PI_SETTINGS['metrics_interval'])
+
+    # Process pending transactions and create blocks if we're the current validator
+    async def _process_transactions_periodically():
+        while True:
+            # Get previous block's timestamp and index for deterministic validator selection
+            previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 for genesis block
+            previous_block_index = self.blocks[-1].index if self.blocks else -1 # Use -1 for genesis block
+
+            current_validator = self.dpos.get_current_validator(
+                reference_index=previous_block_index
+            )
+            print(f"[PROCESS TX] Current DPoS validator: {current_validator}")
+            print(f"[PROCESS TX] Node ID: {self.node_id}")
+
+            if current_validator == self.node_id:
+                print(f"[PROCESS TX] {self.node_id} is the current validator.")
+                # Check system health before proposing a block
                 if not self._check_system_health():
-                    print("System needs throttling")
-                    time.sleep(5)  # Add delay to reduce load
+                    print(f"[PROCESS TX] System not healthy for {self.node_id}. Skipping block proposal.")
+                    await asyncio.sleep(1) # Short delay before re-checking
                     continue
-                
-                # Determine previous block's timestamp for timing checks
-                last_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0
 
-                # Process pending transactions and create blocks if we're the current validator AND it's time to propose
-                if self.dpos.is_time_to_propose_block(last_block_timestamp):
-                    self._process_transactions()
+                # Check if enough time has passed since the last block
+                if not self.dpos.is_time_to_propose_block(previous_block_timestamp):
+                    print(f"[PROCESS TX] Not time to propose a block yet. Last block time: {previous_block_timestamp}, Current time: {time.time()}")
+                    await asyncio.sleep(1) # Wait a bit before next attempt
+                    continue
+
+                if self.pending_transactions:
+                    print(f"[PROCESS TX] {len(self.pending_transactions)} pending transactions found.")
+                    start_time = time.time()
+                    
+                    # Create new block
+                    new_block = Block(
+                        index=len(self.blocks),
+                        timestamp=time.time(),
+                        transactions=self.pending_transactions[:10],  # Limit transactions per block
+                        previous_hash=self.blocks[-1].hash if self.blocks else "0" * 64,
+                        validator=current_validator,
+                        energy_metrics={
+                            **self.energy_monitor.get_system_metrics(),
+                            'consensus_time': time.time() - start_time
+                        }
+                    )
+                    
+                    # Record propagation delay
+                    self.metrics.record_propagation_delay(time.time() - start_time)
+                    
+                    # Publish new block
+                    self.mqtt_client.publish_block(new_block.to_dict())
+                    print(f"[PROCESS TX] Node {self.node_id} published new block: {new_block.hash}")
+                    
+                    # Add block to local chain and save to storage
+                    self.blocks.append(new_block)
+                    self.storage.save_block(new_block)
+                    print(f"[PROCESS TX] Block {new_block.hash} added to local chain and saved.")
+                    
+                    # Publish validator status
+                    self.mqtt_client.publish_validator_status({
+                        'node_id': self.node_id,
+                        'block_count': len(self.blocks),
+                        'stake': self.dpos.validators.get(self.node_id, 0),
+                        'is_validator': True
+                    })
+                    
+                    # Clear processed transactions
+                    self.pending_transactions = self.pending_transactions[10:]
                 else:
-                    print(f"[PROCESS TX] Not time to propose a block yet. Last block time: {last_block_timestamp}, Current time: {time.time()}")
-                
-                # Run chain synchronization periodically
-                if time.time() % RASPBERRY_PI_SETTINGS['sync_interval'] < 1:
-                    loop.run_until_complete(self._synchronize_chain())
-                
-                time.sleep(1)  # Prevent excessive CPU usage
-                
-        except KeyboardInterrupt:
-            print("Shutting down...")
-        finally:
-            self.mqtt_client.disconnect()
-            loop.run_until_complete(self.http_client.aclose())
-            loop.close()
-        
-    def _process_transactions(self) -> None:
-        """Process pending transactions and create blocks if we're the current validator."""
-        
-        # Record current node's own metrics for delegate selection and liveness
-        local_metrics = self.energy_monitor.get_system_metrics()
-        local_metrics['timestamp'] = time.time()
-        self.metrics.record_node_metrics(self.node_id, local_metrics)
-        
-        # Update delegates before selecting a validator
-        self.dpos._update_delegates() # This call will now ensure delegates are updated periodically
-
-        # Get previous block's timestamp and index for deterministic validator selection
-        previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 for genesis block
-        previous_block_index = self.blocks[-1].index if self.blocks else -1 # Use -1 for genesis block
-
-        current_validator = self.dpos.get_current_validator(
-            reference_index=previous_block_index
-        )
-        print(f"[PROCESS TX] Current DPoS validator: {current_validator}")
-        print(f"[PROCESS TX] Node ID: {self.node_id}")
-
-        if current_validator == self.node_id:
-            print(f"[PROCESS TX] {self.node_id} is the current validator.")
-            if self.pending_transactions:
-                print(f"[PROCESS TX] {len(self.pending_transactions)} pending transactions found.")
-                start_time = time.time()
-                
-                # Create new block
-                new_block = Block(
-                    index=len(self.blocks),
-                    timestamp=time.time(),
-                    transactions=self.pending_transactions[:10],  # Limit transactions per block
-                    previous_hash=self.blocks[-1].hash if self.blocks else "0" * 64,
-                    validator=current_validator,
-                    energy_metrics={
-                        **self.energy_monitor.get_system_metrics(),
-                        'consensus_time': time.time() - start_time
-                    }
-                )
-                
-                # Record propagation delay
-                self.metrics.record_propagation_delay(time.time() - start_time)
-                
-                # Publish new block
-                self.mqtt_client.publish_block(new_block.to_dict())
-                print(f"[PROCESS TX] Node {self.node_id} published new block: {new_block.hash}")
-                
-                # Add block to local chain and save to storage
-                self.blocks.append(new_block)
-                self.storage.save_block(new_block)
-                print(f"[PROCESS TX] Block {new_block.hash} added to local chain and saved.")
-                
-                # Publish validator status
-                self.mqtt_client.publish_validator_status({
-                    'node_id': self.node_id,
-                    'block_count': len(self.blocks),
-                    'stake': self.dpos.validators.get(self.node_id, 0),
-                    'is_validator': True
-                })
-                
-                # Clear processed transactions
-                self.pending_transactions = self.pending_transactions[10:]
+                    print("[PROCESS TX] No pending transactions to process.")
             else:
-                print(f"[PROCESS TX] No pending transactions on {self.node_id}.")
-        else:
-            print(f"[PROCESS TX] {self.node_id} is not the current validator.")
+                print(f"[PROCESS TX] {self.node_id} is not the current validator.")
+            await asyncio.sleep(1) # Check frequently
 
 if __name__ == "__main__":
     node = BlockchainNode()
