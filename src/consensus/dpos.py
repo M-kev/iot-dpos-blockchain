@@ -105,38 +105,41 @@ class DPoS:
         """Check if enough time has passed since the last block to propose a new one."""
         return time.time() >= last_block_timestamp + self.block_time
 
-    def validate_block(self, block: Block, energy_usage: float, previous_block_timestamp: float, previous_block_index: int) -> bool:
-        """Validate a block considering energy efficiency and validator."""
-        print(f"[DPoS VALIDATE] Validating block {block.hash} by {block.validator} (Index: {block.index})")
-        print(f"[DPoS VALIDATE] Energy usage: {energy_usage:.2f}W, Threshold: {self.energy_threshold:.2f}W")
-        
-        if energy_usage > self.energy_threshold:
-            print("[DPoS VALIDATE] Validation failed: Energy usage too high.")
-            return False
-            
-        # For genesis block, it's always valid if it's the first block.
-        if block.index == 0:
-            print("[DPoS VALIDATE] Genesis block validation successful.")
-            return True
-
-        # Ensure block timestamp is strictly greater than previous block timestamp to maintain order
-        if block.timestamp <= previous_block_timestamp:
-            print(f"[DPoS VALIDATE] Validation failed: Block timestamp {block.timestamp} is not strictly greater than previous block timestamp {previous_block_timestamp}.")
+    def validate_block(self, block: Block, power_usage: float, previous_block_timestamp: float, previous_block_index: int, sync_tolerance: float = 0.0) -> bool:
+        """Validate a block based on DPoS rules and energy efficiency."""
+        # Check if block was created by a valid delegate
+        if block.validator not in self.delegates:
+            print(f"[DPoS VALIDATE] Block validator {block.validator} is not in delegates list")
             return False
 
-        # For subsequent blocks, compare the block's validator with the expected validator
-        # based on the *previous* block in the chain.
-        expected_validator = self.get_current_validator(
-            reference_index=previous_block_index
-        )
-
-        print(f"[DPoS VALIDATE] Block validator: {block.validator}, Expected DPoS validator: {expected_validator}")
-        
-        if not expected_validator or block.validator != expected_validator:
-            print("[DPoS VALIDATE] Validation failed: Validator mismatch or no expected validator for this block's slot.")
+        # Check if block was created by the current validator
+        current_validator = self.get_current_validator(previous_block_index)
+        if block.validator != current_validator:
+            print(f"[DPoS VALIDATE] Block validator {block.validator} is not the current validator {current_validator}")
             return False
 
-        print("[DPoS VALIDATE] Block validation successful.")
+        # Check if block timestamp is greater than previous block timestamp
+        # Allow a small tolerance during synchronization
+        if block.timestamp <= previous_block_timestamp - sync_tolerance:
+            print(f"[DPoS VALIDATE] Block timestamp {block.timestamp} is not strictly greater than previous block timestamp {previous_block_timestamp} (tolerance: {sync_tolerance})")
+            return False
+
+        # Check if block index is greater than previous block index
+        if block.index <= previous_block_index:
+            print(f"[DPoS VALIDATE] Block index {block.index} is not strictly greater than previous block index {previous_block_index}")
+            return False
+
+        # Check if block was created within the allowed time window
+        current_time = time.time()
+        if abs(current_time - block.timestamp) > self.block_time:
+            print(f"[DPoS VALIDATE] Block timestamp {block.timestamp} is too far from current time {current_time}")
+            return False
+
+        # Check energy efficiency
+        if power_usage > self.energy_threshold:
+            print(f"[DPoS VALIDATE] Energy usage {power_usage}W exceeds threshold {self.energy_threshold}W")
+            return False
+
         return True
         
     def adjust_block_time(self, network_load: float) -> None:

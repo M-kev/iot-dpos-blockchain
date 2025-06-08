@@ -288,7 +288,7 @@ class BlockchainNode:
                         prev_index_for_validation = current_prev_block_index
 
                     # Verify block
-                    if not self.dpos.validate_block(block, 0, prev_timestamp_for_validation, prev_index_for_validation):  # Power usage not critical for sync
+                    if not self.dpos.validate_block(block, 0, prev_timestamp_for_validation, prev_index_for_validation, sync_tolerance=1.0):  # Power usage not critical for sync
                         print(f"[SYNC] Invalid block received from peer {peer['id']} during sync: {block.hash}")
                         print(f"[SYNC] Validation details: Block Index {block.index}, Timestamp {block.timestamp}, Previous Hash {block.previous_hash}")
                         print(f"[SYNC] Expected Previous Timestamp: {prev_timestamp_for_validation}, Expected Previous Index: {prev_index_for_validation}")
