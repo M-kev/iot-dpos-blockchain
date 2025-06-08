@@ -476,6 +476,12 @@ class BlockchainNode:
                 print(f"[PROCESS TX] {self.node_id} is not the current validator.")
             await asyncio.sleep(1) # Check frequently
 
+    async def _synchronize_chain_periodically(self):
+        """Periodically synchronize the local blockchain with peer nodes."""
+        while True:
+            await self._synchronize_chain()
+            await asyncio.sleep(RASPBERRY_PI_SETTINGS['sync_interval'])
+
 if __name__ == "__main__":
     node = BlockchainNode()
     asyncio.run(node.start())  # Use asyncio.run to execute the coroutine
