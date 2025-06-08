@@ -377,6 +377,11 @@ class BlockchainNode:
                 self.mqtt_client.publish_block(new_block.to_dict())
                 print(f"[PROCESS TX] Node {self.node_id} published new block: {new_block.hash}")
                 
+                # Add block to local chain and save to storage
+                self.blocks.append(new_block)
+                self.storage.save_block(new_block)
+                print(f"[PROCESS TX] Block {new_block.hash} added to local chain and saved.")
+                
                 # Publish validator status
                 self.mqtt_client.publish_validator_status({
                     'node_id': self.node_id,
