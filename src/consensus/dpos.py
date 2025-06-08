@@ -82,8 +82,11 @@ class DPoS:
             return None
 
         # Deterministically select from the active and live delegates
+        print(f"[DPoS DEBUG] Delegates: {self.delegates}")
+        print(f"[DPoS DEBUG] Reference index: {reference_index}")
         expected_validator_slot = (reference_index + 1) % len(active_and_live_delegates)
-
+        print(f"[DPoS DEBUG] Expected validator slot: {expected_validator_slot}")
+        print(f"[DPoS DEBUG] Selected validator: {active_and_live_delegates[expected_validator_slot]}")
         return active_and_live_delegates[expected_validator_slot]
 
     def is_time_to_propose_block(self, last_block_timestamp: float) -> bool:
