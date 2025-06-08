@@ -345,6 +345,7 @@ class BlockchainNode:
                 self.mqtt_client.publish_metrics({
                     **metrics,
                     'node_id': self.node_id,
+                    'timestamp': time.time(),
                     'block_count': len(self.blocks),
                     'pending_transactions': len(self.pending_transactions),
                     'current_stake': self.dpos.validators.get(self.node_id, 0),
