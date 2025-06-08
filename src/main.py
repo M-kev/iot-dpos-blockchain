@@ -346,7 +346,7 @@ class BlockchainNode:
         self.dashboard_thread.start()
         
         # Connect to MQTT broker(s)
-        await self.mqtt_client.connect()
+        self.mqtt_client.connect()  # Removed 'await' since connect is synchronous
         
         # Perform initial chain synchronization
         print("Performing initial chain synchronization...")
