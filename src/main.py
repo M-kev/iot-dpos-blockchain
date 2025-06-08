@@ -437,17 +437,21 @@ class BlockchainNode:
                 print(f"[PROCESS TX] System not healthy for {self.node_id}. Skipping block proposal.")
                 await asyncio.sleep(1) # Short delay before re-checking
                 continue
+            else:
+                print(f"[PROCESS TX] System health check passed for {self.node_id}.")
 
             # Check if enough time has passed since the last block
             if not self.dpos.is_time_to_propose_block(previous_block_timestamp):
                 print(f"[PROCESS TX] Not time to propose a block yet. Last block time: {previous_block_timestamp}, Current time: {time.time()}")
                 await asyncio.sleep(1) # Wait a bit before next attempt
                 continue
+            else:
+                print(f"[PROCESS TX] Time to propose a block for {self.node_id}.")
 
             if self.pending_transactions:
                 print(f"[PROCESS TX] {len(self.pending_transactions)} pending transactions found.")
                 start_time = time.time()
-                
+
                 # Create new block
                 new_block = Block(
                     index=len(self.blocks),
@@ -460,19 +464,21 @@ class BlockchainNode:
                         'consensus_time': time.time() - start_time
                     }
                 )
-                
+
+                print(f"[PROCESS TX] New block created with index {new_block.index} and hash {new_block.hash}.")
+
                 # Record propagation delay
                 self.metrics.record_propagation_delay(time.time() - start_time)
-                
+
                 # Publish new block
                 self.mqtt_client.publish_block(new_block.to_dict())
                 print(f"[PROCESS TX] Node {self.node_id} published new block: {new_block.hash}")
-                
+
                 # Add block to local chain and save to storage
                 self.blocks.append(new_block)
                 self.storage.save_block(new_block)
                 print(f"[PROCESS TX] Block {new_block.hash} added to local chain and saved.")
-                
+
                 # Publish validator status
                 self.mqtt_client.publish_validator_status({
                     'node_id': self.node_id,
@@ -480,7 +486,7 @@ class BlockchainNode:
                     'stake': self.dpos.validators.get(self.node_id, 0),
                     'is_validator': True
                 })
-                
+
                 # Clear processed transactions
                 self.pending_transactions = self.pending_transactions[10:]
             else:
