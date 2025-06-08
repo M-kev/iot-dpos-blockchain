@@ -269,13 +269,25 @@ class BlockchainNode:
                 for block_data in blocks_data:
                     block = Block.from_dict(block_data)
                     
+                    # Determine previous block's details for validation during sync
+                    # If current chain is empty, and syncing genesis, use 0.0 and -1
+                    if not self.blocks:
+                        previous_block_timestamp = 0.0
+                        previous_block_index = -1
+                    else:
+                        # For subsequent blocks in the sync, previous is the last block in current chain
+                        # or the block just processed from the received batch
+                        previous_block_timestamp = self.blocks[-1].timestamp
+                        previous_block_index = self.blocks[-1].index
+
                     # Verify block
-                    if not self.dpos.validate_block(block, 0):  # Power usage not critical for sync
+                    if not self.dpos.validate_block(block, 0, previous_block_timestamp, previous_block_index):  # Power usage not critical for sync
                         print(f"Invalid block received from peer {peer['id']}")
                         continue
                         
                     # Check if block already exists
                     if any(b.hash == block.hash for b in self.blocks):
+                        print(f"Block {block.hash} from peer {peer['id']} already exists.")
                         continue
                         
                     # Verify block chain
@@ -284,7 +296,7 @@ class BlockchainNode:
                         self.storage.save_block(block)
                         print(f"Added block {block.index} from peer {peer['id']}")
                     else:
-                        print(f"Block chain verification failed for block {block.index}")
+                        print(f"Block chain verification failed for block {block.index} from peer {peer['id']}. Previous hash mismatch: {block.previous_hash} != {self.blocks[-1].hash}")
                         
         except Exception as e:
             print(f"Error syncing with peer {peer['id']}: {str(e)}")
@@ -306,6 +318,11 @@ class BlockchainNode:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
+        # Perform initial chain synchronization on startup
+        print("Performing initial chain synchronization...")
+        loop.run_until_complete(self._synchronize_chain())
+        print("Initial chain synchronization complete.")
+
         try:
             while True:
                 # Monitor system metrics
