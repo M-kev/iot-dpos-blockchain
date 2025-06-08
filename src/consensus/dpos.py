@@ -66,16 +66,22 @@ class DPoS:
         return active_delegates[slot % len(active_delegates)]
         
     def validate_block(self, block: Block, energy_usage: float) -> bool:
-        """Validate a block considering energy efficiency."""
+        """Validate a block considering energy efficiency and validator."""
+        print(f"[DPoS VALIDATE] Validating block {block.hash} by {block.validator}")
+        print(f"[DPoS VALIDATE] Energy usage: {energy_usage:.2f}W, Threshold: {self.energy_threshold:.2f}W")
         if energy_usage > self.energy_threshold:
+            print("[DPoS VALIDATE] Validation failed: Energy usage too high.")
             return False
             
         current_validator = self.get_current_validator()
+        print(f"[DPoS VALIDATE] Block validator: {block.validator}, Current DPoS validator (local): {current_validator}")
         if not current_validator or block.validator != current_validator:
+            print("[DPoS VALIDATE] Validation failed: Validator mismatch or no current validator.")
             return False
             
         # Update last block time
         self.last_block_time = time.time()
+        print("[DPoS VALIDATE] Block validation successful.")
         return True
         
     def adjust_block_time(self, network_load: float) -> None:
