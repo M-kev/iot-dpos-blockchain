@@ -47,14 +47,18 @@ class MQTTClient:
             
     def _on_message(self, client, userdata, msg) -> None:
         """Handle incoming message callback."""
+        print(f"[MQTT] Received message on topic '{msg.topic}'")
         try:
             payload = json.loads(msg.payload.decode())
             topic = msg.topic
             
             if topic in self.message_handlers:
+                print(f"[MQTT] Routing message from topic '{topic}' to handler.")
                 self.message_handlers[topic](payload)
+            else:
+                print(f"[MQTT] No handler registered for topic '{topic}'.")
         except json.JSONDecodeError:
-            print(f"Failed to decode message: {msg.payload}")
+            print(f"[MQTT] Failed to decode message: {msg.payload}")
             
     def _on_disconnect(self, client, userdata, rc) -> None:
         """Handle disconnection callback."""
