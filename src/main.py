@@ -48,6 +48,9 @@ class BlockchainNode:
         # Initialize blockchain with genesis block
         self.blocks = []
         self._initialize_blockchain()
+
+        # Update delegates after blockchain initialization to ensure initial set is chosen
+        self.dpos._update_delegates(force_update=True)
         
         # Setup message handlers
         self._setup_handlers()
@@ -355,7 +358,7 @@ class BlockchainNode:
                 
                 # Periodically update DPoS delegates based on liveness
                 if time.time() % RASPBERRY_PI_SETTINGS['metrics_interval'] < 1: # Reuse metrics_interval for delegate updates
-                    self.dpos._update_delegates()
+                    self.dpos._update_delegates() # This call will now be rate-limited internally by DPoS
                     print(f"[DPoS] Delegates updated. Active delegates: {self.dpos.delegates}")
 
                 # Check system health

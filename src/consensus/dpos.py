@@ -12,32 +12,54 @@ class DPoS:
         self.block_time = 3  # seconds
         self.energy_threshold = 5.0  # Maximum energy usage threshold
         self.metrics = metrics  # Store the metrics instance
-        self.liveness_threshold = 10 # seconds, if a node hasn't reported metrics in this time, consider it offline
+        self.liveness_threshold = 20 # seconds, if a node hasn't reported metrics in this time, consider it offline
+        self.last_delegate_update_time = 0.0 # Initialize last update time
+        self.delegate_update_interval = 300 # 5 minutes in seconds
         
     def add_validator(self, address: str, stake: float) -> bool:
         """Add a new validator with their stake."""
         if len(self.validators) >= self.max_validators:
             return False
         self.validators[address] = stake
-        self._update_delegates()
+        # No immediate update_delegates here, it's handled by scheduled call
         return True
         
     def remove_validator(self, address: str) -> bool:
         """Remove a validator."""
         if address in self.validators:
             del self.validators[address]
-            self._update_delegates()
+            # No immediate update_delegates here, it's handled by scheduled call
             return True
         return False
         
-    def _update_delegates(self) -> None:
-        """Update the list of active delegates based on stake."""
+    def _update_delegates(self, force_update: bool = False) -> None:
+        """Update the list of active delegates based on stake and liveness.
+        Only updates if enough time has passed or if force_update is True."""
+        current_time = time.time()
+        if not force_update and (current_time - self.last_delegate_update_time < self.delegate_update_interval):
+            return # Not time to update yet
+
+        print("[DPoS] Updating delegates based on stake and liveness...")
         sorted_validators = sorted(
             self.validators.items(),
             key=lambda x: x[1],
             reverse=True
         )
-        self.delegates = [v[0] for v in sorted_validators[:self.max_validators]]
+        
+        active_delegates = []
+        for validator_id, stake in sorted_validators:
+            if self.metrics:
+                node_metrics = self.metrics.all_nodes_metrics.get(validator_id)
+                # Only include if metrics exist and are within liveness threshold
+                if node_metrics and (current_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
+                    active_delegates.append(validator_id)
+            else:
+                # If no metrics instance, consider all current validators as active for simplicity
+                active_delegates.append(validator_id)
+
+        self.delegates = active_delegates[:self.max_validators]
+        self.last_delegate_update_time = current_time
+        print(f"[DPoS] Delegates updated. Active delegates: {self.delegates}")
 
     def get_current_validator(self, reference_index: int) -> Optional[str]:
         """
