@@ -417,7 +417,8 @@ class BlockchainNode:
             print(f"[PROCESS TX] Current DPoS validator: {current_validator}")
             print(f"[PROCESS TX] Node ID: {self.node_id}")
 
-            if current_validator == self.node_id:
+            # Normalize current_validator and self.node_id for comparison
+            if current_validator.strip().lower() == self.node_id.strip().lower():
                 print(f"[PROCESS TX] {self.node_id} is the current validator.")
                 # Check system health before proposing a block
                 if not self._check_system_health():
