@@ -101,6 +101,7 @@ class BlockchainNode:
             for node_id, stake in initial_stakes.items():
                 self.dpos.add_validator(node_id, stake)
             print(f"Blockchain initialized with genesis block. Current stake for {self.node_id}: {self.dpos.validators.get(self.node_id, 0)}")
+            print(f"[INIT] DPoS validators populated: {self.dpos.validators}")
         else:
             raise ValueError("Genesis block does not contain initial stake distribution.")
 

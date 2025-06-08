@@ -45,6 +45,7 @@ class DPoS:
             key=lambda x: x[1],
             reverse=True
         )
+        print(f"[DPoS] Sorted validators: {sorted_validators}")
         
         active_delegates = []
         for validator_id, stake in sorted_validators:
@@ -53,6 +54,10 @@ class DPoS:
                 # Only include if metrics exist and are within liveness threshold
                 if node_metrics and (current_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
                     active_delegates.append(validator_id)
+                else:
+                    # Log why a validator is not considered active
+                    status = "no metrics" if not node_metrics else f"stale metrics ({(current_time - node_metrics.get('timestamp', 0)):.2f}s ago)"
+                    print(f"[DPoS] Excluding validator {validator_id} from active delegates: {status}")
             else:
                 # If no metrics instance, consider all current validators as active for simplicity
                 active_delegates.append(validator_id)
@@ -66,7 +71,9 @@ class DPoS:
         Get the current validator based on a reference block's index,
         considering active delegates. This is a purely deterministic calculation based on active delegates.
         """
+        print(f"[DPoS GET VALIDATOR] Current delegates: {self.delegates}")
         if not self.delegates:
+            print("[DPoS GET VALIDATOR] No delegates available.")
             return None
 
         active_and_live_delegates = []
@@ -76,11 +83,17 @@ class DPoS:
                 node_metrics = self.metrics.all_nodes_metrics.get(delegate_id)
                 if node_metrics and (current_system_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
                     active_and_live_delegates.append(delegate_id)
+                else:
+                    # Log why a delegate is not considered active for selection
+                    status = "no metrics" if not node_metrics else f"stale metrics ({(current_system_time - node_metrics.get('timestamp', 0)):.2f}s ago)"
+                    print(f"[DPoS GET VALIDATOR] Excluding {delegate_id} from current validator selection: {status}")
         else:
             # If no metrics instance, consider all current delegates as active
             active_and_live_delegates = self.delegates
 
+        print(f"[DPoS GET VALIDATOR] Active and live delegates for selection: {active_and_live_delegates}")
         if not active_and_live_delegates:
+            print("[DPoS GET VALIDATOR] No active and live delegates for selection.")
             return None
 
         # Determine the expected validator index for the *next* block in the sequence
