@@ -272,6 +272,10 @@ class BlockchainNode:
                 print(f"Error querying peer {peer['id']}: {str(e)}")
                 continue
                 
+        # Force delegate update after synchronization
+        self.dpos._update_delegates(force_update=True)
+        print("Delegates updated after chain synchronization.")
+        
     async def _sync_with_peer(self, peer: Dict[str, Any], local_chain_length: int) -> None:
         """Synchronize blocks with a specific peer."""
         try:
@@ -418,63 +422,69 @@ class BlockchainNode:
             print(f"[PROCESS TX] Node ID: {self.node_id}")
 
             # Normalize current_validator and self.node_id for comparison
+            print(f"[PROCESS TX DEBUG] Node ID: {self.node_id.strip().lower()}")
+            print(f"[PROCESS TX DEBUG] Current Validator: {current_validator.strip().lower()}")
             if current_validator.strip().lower() == self.node_id.strip().lower():
                 print(f"[PROCESS TX] {self.node_id} is the current validator.")
-                # Check system health before proposing a block
-                if not self._check_system_health():
-                    print(f"[PROCESS TX] System not healthy for {self.node_id}. Skipping block proposal.")
-                    await asyncio.sleep(1) # Short delay before re-checking
-                    continue
-
-                # Check if enough time has passed since the last block
-                if not self.dpos.is_time_to_propose_block(previous_block_timestamp):
-                    print(f"[PROCESS TX] Not time to propose a block yet. Last block time: {previous_block_timestamp}, Current time: {time.time()}")
-                    await asyncio.sleep(1) # Wait a bit before next attempt
-                    continue
-
-                if self.pending_transactions:
-                    print(f"[PROCESS TX] {len(self.pending_transactions)} pending transactions found.")
-                    start_time = time.time()
-                    
-                    # Create new block
-                    new_block = Block(
-                        index=len(self.blocks),
-                        timestamp=time.time(),
-                        transactions=self.pending_transactions[:10],  # Limit transactions per block
-                        previous_hash=self.blocks[-1].hash if self.blocks else "0" * 64,
-                        validator=current_validator,
-                        energy_metrics={
-                            **self.energy_monitor.get_system_metrics(),
-                            'consensus_time': time.time() - start_time
-                        }
-                    )
-                    
-                    # Record propagation delay
-                    self.metrics.record_propagation_delay(time.time() - start_time)
-                    
-                    # Publish new block
-                    self.mqtt_client.publish_block(new_block.to_dict())
-                    print(f"[PROCESS TX] Node {self.node_id} published new block: {new_block.hash}")
-                    
-                    # Add block to local chain and save to storage
-                    self.blocks.append(new_block)
-                    self.storage.save_block(new_block)
-                    print(f"[PROCESS TX] Block {new_block.hash} added to local chain and saved.")
-                    
-                    # Publish validator status
-                    self.mqtt_client.publish_validator_status({
-                        'node_id': self.node_id,
-                        'block_count': len(self.blocks),
-                        'stake': self.dpos.validators.get(self.node_id, 0),
-                        'is_validator': True
-                    })
-                    
-                    # Clear processed transactions
-                    self.pending_transactions = self.pending_transactions[10:]
-                else:
-                    print("[PROCESS TX] No pending transactions to process.")
+                # Proceed with block proposal
             else:
                 print(f"[PROCESS TX] {self.node_id} is not the current validator.")
+                await asyncio.sleep(1) # Check frequently
+                continue
+
+            # Check system health before proposing a block
+            if not self._check_system_health():
+                print(f"[PROCESS TX] System not healthy for {self.node_id}. Skipping block proposal.")
+                await asyncio.sleep(1) # Short delay before re-checking
+                continue
+
+            # Check if enough time has passed since the last block
+            if not self.dpos.is_time_to_propose_block(previous_block_timestamp):
+                print(f"[PROCESS TX] Not time to propose a block yet. Last block time: {previous_block_timestamp}, Current time: {time.time()}")
+                await asyncio.sleep(1) # Wait a bit before next attempt
+                continue
+
+            if self.pending_transactions:
+                print(f"[PROCESS TX] {len(self.pending_transactions)} pending transactions found.")
+                start_time = time.time()
+                
+                # Create new block
+                new_block = Block(
+                    index=len(self.blocks),
+                    timestamp=time.time(),
+                    transactions=self.pending_transactions[:10],  # Limit transactions per block
+                    previous_hash=self.blocks[-1].hash if self.blocks else "0" * 64,
+                    validator=current_validator,
+                    energy_metrics={
+                        **self.energy_monitor.get_system_metrics(),
+                        'consensus_time': time.time() - start_time
+                    }
+                )
+                
+                # Record propagation delay
+                self.metrics.record_propagation_delay(time.time() - start_time)
+                
+                # Publish new block
+                self.mqtt_client.publish_block(new_block.to_dict())
+                print(f"[PROCESS TX] Node {self.node_id} published new block: {new_block.hash}")
+                
+                # Add block to local chain and save to storage
+                self.blocks.append(new_block)
+                self.storage.save_block(new_block)
+                print(f"[PROCESS TX] Block {new_block.hash} added to local chain and saved.")
+                
+                # Publish validator status
+                self.mqtt_client.publish_validator_status({
+                    'node_id': self.node_id,
+                    'block_count': len(self.blocks),
+                    'stake': self.dpos.validators.get(self.node_id, 0),
+                    'is_validator': True
+                })
+                
+                # Clear processed transactions
+                self.pending_transactions = self.pending_transactions[10:]
+            else:
+                print("[PROCESS TX] No pending transactions to process.")
             await asyncio.sleep(1) # Check frequently
 
     async def _synchronize_chain_periodically(self):
