@@ -128,9 +128,17 @@ class BlockchainNode:
             print(f"[HANDLE BLOCK] Block {block.hash} already exists in chain.")
             return
             
+        # Determine previous block's details for validation
+        previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 or genesis block timestamp if no previous block
+        previous_block_index = self.blocks[-1].index if self.blocks else -1 # Use -1 or genesis block index if no previous block
+
+        if not self.blocks and block.index == 0: # This is the genesis block and we don't have it
+            previous_block_timestamp = 0.0 # No actual previous block for genesis
+            previous_block_index = -1 # No actual previous block for genesis
+
         # Check energy metrics before validation
         energy_metrics = self.energy_monitor.get_system_metrics()
-        if self.dpos.validate_block(block, energy_metrics['power_usage']):
+        if self.dpos.validate_block(block, energy_metrics['power_usage'], previous_block_timestamp, previous_block_index):
             print(f"[HANDLE BLOCK] Block {block.hash} validation successful.")
             # Verify block chain (check previous hash)
             if self.blocks and block.previous_hash == self.blocks[-1].hash:
@@ -320,19 +328,32 @@ class BlockchainNode:
                     'pending_transactions': len(self.pending_transactions),
                     'current_stake': self.dpos.validators.get(self.node_id, 0),
                     'all_validators': self.dpos.validators,
-                    'current_network_validator': self.dpos.get_current_validator(),
+                    'current_network_validator': self.dpos.get_current_validator(
+                        reference_index=self.blocks[-1].index
+                    ) if self.blocks else None,
                     'total_blocks': len(self.blocks),
                     'latest_block_hash': self.blocks[-1].hash if self.blocks else None
                 })
                 
+                # Periodically update DPoS delegates based on liveness
+                if time.time() % RASPBERRY_PI_SETTINGS['metrics_interval'] < 1: # Reuse metrics_interval for delegate updates
+                    self.dpos._update_delegates()
+                    print(f"[DPoS] Delegates updated. Active delegates: {self.dpos.delegates}")
+
                 # Check system health
                 if not self._check_system_health():
                     print("System needs throttling")
                     time.sleep(5)  # Add delay to reduce load
                     continue
-                    
-                # Process pending transactions and create blocks if we're the current validator
-                self._process_transactions()
+                
+                # Determine previous block's timestamp for timing checks
+                last_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0
+
+                # Process pending transactions and create blocks if we're the current validator AND it's time to propose
+                if self.dpos.is_time_to_propose_block(last_block_timestamp):
+                    self._process_transactions()
+                else:
+                    print(f"[PROCESS TX] Not time to propose a block yet. Last block time: {last_block_timestamp}, Current time: {time.time()}")
                 
                 # Run chain synchronization periodically
                 if time.time() % RASPBERRY_PI_SETTINGS['sync_interval'] < 1:
@@ -349,7 +370,13 @@ class BlockchainNode:
         
     def _process_transactions(self) -> None:
         """Process pending transactions and create blocks if we're the current validator."""
-        current_validator = self.dpos.get_current_validator()
+        # Get previous block's timestamp and index for deterministic validator selection
+        previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 for genesis block
+        previous_block_index = self.blocks[-1].index if self.blocks else -1 # Use -1 for genesis block
+
+        current_validator = self.dpos.get_current_validator(
+            reference_index=previous_block_index
+        )
         print(f"[PROCESS TX] Current DPoS validator: {current_validator}")
         print(f"[PROCESS TX] Node ID: {self.node_id}")
 

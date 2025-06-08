@@ -10,10 +10,9 @@ class DPoS:
         self.validators: Dict[str, float] = {}  # address -> stake
         self.delegates: List[str] = []
         self.block_time = 3  # seconds
-        self.last_block_time = 0
-        self.energy_threshold = 5.0  # Maximum energy usage threshold (increased from 0.8 to 5.0)
+        self.energy_threshold = 5.0  # Maximum energy usage threshold
         self.metrics = metrics  # Store the metrics instance
-        self.liveness_threshold = 30 # seconds, if a node hasn't reported metrics in this time, consider it offline
+        self.liveness_threshold = 10 # seconds, if a node hasn't reported metrics in this time, consider it offline
         
     def add_validator(self, address: str, stake: float) -> bool:
         """Add a new validator with their stake."""
@@ -32,55 +31,77 @@ class DPoS:
         return False
         
     def _update_delegates(self) -> None:
-        """Update the list of active delegates based on stake."""
+        """Update the list of active delegates based on stake and liveness."""
         sorted_validators = sorted(
             self.validators.items(),
             key=lambda x: x[1],
             reverse=True
         )
-        self.delegates = [v[0] for v in sorted_validators[:self.max_validators]]
         
-    def get_current_validator(self) -> Optional[str]:
-        """Get the current validator based on time, considering liveness."""
+        active_delegates = []
+        current_system_time = time.time()
+
+        for validator_id, stake in sorted_validators:
+            if self.metrics:
+                node_metrics = self.metrics.all_nodes_metrics.get(validator_id)
+                # Only include if metrics exist and are within liveness threshold
+                if node_metrics and (current_system_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
+                    active_delegates.append(validator_id)
+            else:
+                # If no metrics instance, consider all current validators as active for simplicity
+                active_delegates.append(validator_id)
+
+        self.delegates = active_delegates[:self.max_validators]
+
+    def get_current_validator(self, reference_index: int) -> Optional[str]:
+        """
+        Get the current validator based on a reference block's index,
+        considering active delegates. This is a purely deterministic calculation.
+        """
         if not self.delegates:
             return None
 
-        active_delegates = []
-        if self.metrics:
-            current_time = time.time()
-            for delegate_id in self.delegates:
-                node_metrics = self.metrics.all_nodes_metrics.get(delegate_id)
-                if node_metrics and (current_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
-                    active_delegates.append(delegate_id)
-        else:
-            active_delegates = self.delegates
-
-        if not active_delegates:
-            return None
-
-        current_time = time.time()
-        if current_time - self.last_block_time < self.block_time:
-            return None
-
-        slot = int((current_time - self.last_block_time) / self.block_time)
-        return active_delegates[slot % len(active_delegates)]
+        # Determine the expected validator index for the *next* block in the sequence
+        # The validator for block (reference_index + 1) is (reference_index + 1) % num_delegates
+        expected_validator_slot = (reference_index + 1) % len(self.delegates)
         
-    def validate_block(self, block: Block, energy_usage: float) -> bool:
+        return self.delegates[expected_validator_slot]
+
+    def is_time_to_propose_block(self, last_block_timestamp: float) -> bool:
+        """Check if enough time has passed since the last block to propose a new one."""
+        return time.time() >= last_block_timestamp + self.block_time
+
+    def validate_block(self, block: Block, energy_usage: float, previous_block_timestamp: float, previous_block_index: int) -> bool:
         """Validate a block considering energy efficiency and validator."""
-        print(f"[DPoS VALIDATE] Validating block {block.hash} by {block.validator}")
+        print(f"[DPoS VALIDATE] Validating block {block.hash} by {block.validator} (Index: {block.index})")
         print(f"[DPoS VALIDATE] Energy usage: {energy_usage:.2f}W, Threshold: {self.energy_threshold:.2f}W")
+        
         if energy_usage > self.energy_threshold:
             print("[DPoS VALIDATE] Validation failed: Energy usage too high.")
             return False
             
-        current_validator = self.get_current_validator()
-        print(f"[DPoS VALIDATE] Block validator: {block.validator}, Current DPoS validator (local): {current_validator}")
-        if not current_validator or block.validator != current_validator:
-            print("[DPoS VALIDATE] Validation failed: Validator mismatch or no current validator.")
+        # For genesis block, it's always valid if it's the first block.
+        if block.index == 0:
+            print("[DPoS VALIDATE] Genesis block validation successful.")
+            return True
+
+        # Ensure block timestamp is strictly greater than previous block timestamp to maintain order
+        if block.timestamp <= previous_block_timestamp:
+            print(f"[DPoS VALIDATE] Validation failed: Block timestamp {block.timestamp} is not strictly greater than previous block timestamp {previous_block_timestamp}.")
             return False
-            
-        # Update last block time
-        self.last_block_time = time.time()
+
+        # For subsequent blocks, compare the block's validator with the expected validator
+        # based on the *previous* block in the chain.
+        expected_validator = self.get_current_validator(
+            reference_index=previous_block_index
+        )
+
+        print(f"[DPoS VALIDATE] Block validator: {block.validator}, Expected DPoS validator: {expected_validator}")
+        
+        if not expected_validator or block.validator != expected_validator:
+            print("[DPoS VALIDATE] Validation failed: Validator mismatch or no expected validator for this block's slot.")
+            return False
+
         print("[DPoS VALIDATE] Block validation successful.")
         return True
         
