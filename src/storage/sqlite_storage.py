@@ -42,7 +42,7 @@ class SQLiteStorage:
                     previous_hash TEXT,
                     hash TEXT,
                     transactions TEXT,
-                    data TEXT
+                    energy_metrics TEXT
                 )
             ''')
             
@@ -70,13 +70,13 @@ class SQLiteStorage:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # Convert transactions and data to JSON strings
+            # Convert transactions and energy_metrics to JSON strings
             transactions_json = json.dumps(block.transactions)
-            data_json = json.dumps(block.data)
+            energy_metrics_json = json.dumps(block.energy_metrics)
             
             cursor.execute('''
                 INSERT OR REPLACE INTO blocks 
-                ("index", timestamp, validator, previous_hash, hash, transactions, data)
+                ("index", timestamp, validator, previous_hash, hash, transactions, energy_metrics)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 block.index,
@@ -85,7 +85,7 @@ class SQLiteStorage:
                 block.previous_hash,
                 block.hash,
                 transactions_json,
-                data_json
+                energy_metrics_json
             ))
             
             conn.commit()
@@ -107,7 +107,7 @@ class SQLiteStorage:
             if row:
                 # Convert JSON strings back to Python objects
                 transactions = json.loads(row[5])
-                data = json.loads(row[6])
+                energy_metrics = json.loads(row[6])
                 
                 block = Block(
                     index=row[0],
@@ -115,7 +115,7 @@ class SQLiteStorage:
                     validator=row[2],
                     previous_hash=row[3],
                     transactions=transactions,
-                    data=data
+                    energy_metrics=energy_metrics
                 )
                 conn.close()
                 return block
@@ -159,7 +159,7 @@ class SQLiteStorage:
             if row:
                 # Convert JSON strings back to Python objects
                 transactions = json.loads(row[5])
-                data = json.loads(row[6])
+                energy_metrics = json.loads(row[6])
                 
                 block = Block(
                     index=row[0],
@@ -167,7 +167,7 @@ class SQLiteStorage:
                     validator=row[2],
                     previous_hash=row[3],
                     transactions=transactions,
-                    data=data
+                    energy_metrics=energy_metrics
                 )
                 conn.close()
                 return block
@@ -207,7 +207,7 @@ class SQLiteStorage:
             for row in cursor.fetchall():
                 # Convert JSON strings back to Python objects
                 transactions = json.loads(row[5])
-                data = json.loads(row[6])
+                energy_metrics = json.loads(row[6])
                 
                 block = Block(
                     index=row[0],
@@ -215,7 +215,7 @@ class SQLiteStorage:
                     validator=row[2],
                     previous_hash=row[3],
                     transactions=transactions,
-                    data=data
+                    energy_metrics=energy_metrics
                 )
                 blocks.append(block)
             
