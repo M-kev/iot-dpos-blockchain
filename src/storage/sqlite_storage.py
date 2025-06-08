@@ -36,7 +36,7 @@ class SQLiteStorage:
             # Create blocks table if it doesn't exist
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS blocks (
-                    index INTEGER PRIMARY KEY,
+                    "index" INTEGER PRIMARY KEY,
                     timestamp REAL,
                     validator TEXT,
                     previous_hash TEXT,
@@ -76,7 +76,7 @@ class SQLiteStorage:
             
             cursor.execute('''
                 INSERT OR REPLACE INTO blocks 
-                (index, timestamp, validator, previous_hash, hash, transactions, data)
+                ("index", timestamp, validator, previous_hash, hash, transactions, data)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 block.index,
@@ -101,7 +101,7 @@ class SQLiteStorage:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT * FROM blocks WHERE index = ?', (index,))
+            cursor.execute('SELECT * FROM blocks WHERE "index" = ?', (index,))
             row = cursor.fetchone()
             
             if row:
@@ -153,7 +153,7 @@ class SQLiteStorage:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT * FROM blocks ORDER BY index DESC LIMIT 1')
+            cursor.execute('SELECT * FROM blocks ORDER BY "index" DESC LIMIT 1')
             row = cursor.fetchone()
             
             if row:
@@ -185,8 +185,8 @@ class SQLiteStorage:
             
             cursor.execute('''
                 SELECT * FROM blocks 
-                WHERE index >= ? AND index <= ?
-                ORDER BY index ASC
+                WHERE "index" >= ? AND "index" <= ?
+                ORDER BY "index" ASC
             ''', (start_index, end_index))
             
             blocks = []
