@@ -2,7 +2,7 @@
 
 # Stop the blockchain service
 echo "Stopping blockchain service..."
-sudo systemctl stop iot-dpos-blockchain
+sudo systemctl stop blockchain-node
 
 # Remove blockchain data
 echo "Removing blockchain data..."

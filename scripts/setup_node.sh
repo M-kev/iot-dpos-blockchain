@@ -41,6 +41,10 @@ chown -R $USER:$USER ~/iot-dpos-blockchain
 # Ensure the data directory is writable
 chmod 777 ~/iot-dpos-blockchain/data
 
+# Create an empty database file to ensure proper permissions
+touch ~/iot-dpos-blockchain/data/blockchain.db
+chmod 666 ~/iot-dpos-blockchain/data/blockchain.db
+
 # Create .env file
 
 # Create systemd service file

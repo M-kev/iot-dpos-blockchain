@@ -19,19 +19,17 @@ class SQLiteStorage:
                 os.makedirs(db_dir, exist_ok=True)
                 print(f"[STORAGE] Created database directory: {db_dir}")
             
-            # Initialize database
-            self._init_db()
-            
-            # Verify table creation
-            self._verify_tables()
+            # Initialize database and ensure tables exist
+            self._ensure_database()
             
         except Exception as e:
             print(f"[STORAGE] Error initializing storage: {e}")
             raise
 
-    def _init_db(self):
-        """Initialize the database with required tables."""
+    def _ensure_database(self):
+        """Ensure database and tables exist."""
         try:
+            # Connect to database (creates it if it doesn't exist)
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
@@ -50,32 +48,26 @@ class SQLiteStorage:
             
             conn.commit()
             conn.close()
-            print(f"[STORAGE] Database initialized at {self.db_path}")
+            print(f"[STORAGE] Database and tables verified at {self.db_path}")
         except Exception as e:
-            print(f"[STORAGE] Error initializing database: {e}")
+            print(f"[STORAGE] Error ensuring database: {e}")
             raise
 
-    def _verify_tables(self):
-        """Verify that required tables exist."""
+    def _get_connection(self):
+        """Get a database connection with proper error handling."""
         try:
             conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Check if blocks table exists
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='blocks'")
-            if not cursor.fetchone():
-                print("[STORAGE] Blocks table not found, creating...")
-                self._init_db()
-            
-            conn.close()
+            return conn
         except Exception as e:
-            print(f"[STORAGE] Error verifying tables: {e}")
-            raise
+            print(f"[STORAGE] Error connecting to database: {e}")
+            # Try to recreate database if connection fails
+            self._ensure_database()
+            return sqlite3.connect(self.db_path)
 
     def save_block(self, block: Block):
         """Save a block to the database."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             cursor = conn.cursor()
             
             # Convert transactions and data to JSON strings
@@ -106,7 +98,7 @@ class SQLiteStorage:
     def get_block(self, index: int) -> Optional[Block]:
         """Retrieve a block by its index."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             cursor = conn.cursor()
             
             cursor.execute('SELECT * FROM blocks WHERE index = ?', (index,))
@@ -136,7 +128,7 @@ class SQLiteStorage:
     def get_chain_length(self) -> int:
         """Get the current length of the blockchain."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             cursor = conn.cursor()
             
             cursor.execute('SELECT COUNT(*) FROM blocks')
@@ -146,8 +138,8 @@ class SQLiteStorage:
             return length
         except sqlite3.OperationalError as e:
             if "no such table" in str(e):
-                print("[STORAGE] Blocks table not found, initializing database...")
-                self._init_db()
+                print("[STORAGE] Blocks table not found, creating...")
+                self._ensure_database()
                 return 0
             print(f"[STORAGE] Error getting chain length: {e}")
             return 0
@@ -158,7 +150,7 @@ class SQLiteStorage:
     def get_latest_block(self) -> Optional[Block]:
         """Get the latest block in the chain."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             cursor = conn.cursor()
             
             cursor.execute('SELECT * FROM blocks ORDER BY index DESC LIMIT 1')
@@ -188,7 +180,7 @@ class SQLiteStorage:
     def get_blocks(self, start_index: int, end_index: int) -> List[Block]:
         """Get a range of blocks from the chain."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             cursor = conn.cursor()
             
             cursor.execute('''
