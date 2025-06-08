@@ -8,12 +8,26 @@ from consensus.block import Block
 
 class SQLiteStorage:
     def __init__(self, db_path: str = "blockchain.db"):
-        # Ensure the database path is absolute
-        self.db_path = os.path.abspath(db_path)
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        # Initialize database
-        self._init_db()
+        """Initialize SQLite storage with proper error handling."""
+        try:
+            # Ensure the database path is absolute
+            self.db_path = os.path.abspath(db_path)
+            
+            # Create directory if it doesn't exist
+            db_dir = os.path.dirname(self.db_path)
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+                print(f"[STORAGE] Created database directory: {db_dir}")
+            
+            # Initialize database
+            self._init_db()
+            
+            # Verify table creation
+            self._verify_tables()
+            
+        except Exception as e:
+            print(f"[STORAGE] Error initializing storage: {e}")
+            raise
 
     def _init_db(self):
         """Initialize the database with required tables."""
@@ -39,6 +53,23 @@ class SQLiteStorage:
             print(f"[STORAGE] Database initialized at {self.db_path}")
         except Exception as e:
             print(f"[STORAGE] Error initializing database: {e}")
+            raise
+
+    def _verify_tables(self):
+        """Verify that required tables exist."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Check if blocks table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='blocks'")
+            if not cursor.fetchone():
+                print("[STORAGE] Blocks table not found, creating...")
+                self._init_db()
+            
+            conn.close()
+        except Exception as e:
+            print(f"[STORAGE] Error verifying tables: {e}")
             raise
 
     def save_block(self, block: Block):
@@ -113,6 +144,13 @@ class SQLiteStorage:
             
             conn.close()
             return length
+        except sqlite3.OperationalError as e:
+            if "no such table" in str(e):
+                print("[STORAGE] Blocks table not found, initializing database...")
+                self._init_db()
+                return 0
+            print(f"[STORAGE] Error getting chain length: {e}")
+            return 0
         except Exception as e:
             print(f"[STORAGE] Error getting chain length: {e}")
             return 0

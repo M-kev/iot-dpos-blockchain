@@ -38,6 +38,9 @@ mkdir -p ~/iot-dpos-blockchain/data  # For SQLite database
 chmod -R 755 ~/iot-dpos-blockchain
 chown -R $USER:$USER ~/iot-dpos-blockchain
 
+# Ensure the data directory is writable
+chmod 777 ~/iot-dpos-blockchain/data
+
 # Create .env file
 
 # Create systemd service file
