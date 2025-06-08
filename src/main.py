@@ -116,19 +116,22 @@ class BlockchainNode:
         self.mqtt_client.subscribe('validator/status', self._handle_validator_status)
         self.mqtt_client.subscribe('metrics', self._handle_incoming_metrics)
         
-    def _handle_new_block(self, block_data: Dict[str, Any]) -> None:
+    def _handle_new_block(self, block_data: dict) -> None:
         """Handle incoming new block."""
         block = Block.from_dict(block_data)
+        print(f"[HANDLE BLOCK] Node {self.node_id} received new block: {block.hash} (Index: {block.index})")
         
         # Skip if we already have this block
         if any(b.hash == block.hash for b in self.blocks):
+            print(f"[HANDLE BLOCK] Block {block.hash} already exists in chain.")
             return
             
         # Check energy metrics before validation
         energy_metrics = self.energy_monitor.get_system_metrics()
         if self.dpos.validate_block(block, energy_metrics['power_usage']):
-            # Verify block chain
-            if block.previous_hash == self.blocks[-1].hash:
+            print(f"[HANDLE BLOCK] Block {block.hash} validation successful.")
+            # Verify block chain (check previous hash)
+            if self.blocks and block.previous_hash == self.blocks[-1].hash:
                 self.blocks.append(block)
                 self.storage.save_block(block)
                 
@@ -138,8 +141,12 @@ class BlockchainNode:
                     block.energy_metrics.get('consensus_time', 0)
                 )
                 
-                print(f"New block added: {block.hash}")
-                
+                print(f"[HANDLE BLOCK] New block {block.hash} added to chain.")
+            else:
+                print(f"[HANDLE BLOCK] Block chain verification failed for block {block.hash}. Previous hash mismatch or empty chain. Incoming previous_hash: {block.previous_hash}, Local last block hash: {self.blocks[-1].hash if self.blocks else 'N/A'}")
+        else:
+            print(f"[HANDLE BLOCK] Block {block.hash} validation failed.")
+        
     def _handle_new_transaction(self, transaction_data: Dict[str, Any]) -> None:
         """Handle incoming new transaction."""
         self.pending_transactions.append(transaction_data)
