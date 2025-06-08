@@ -29,8 +29,14 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Ensure static directory exists for dashboard
-mkdir -p static
+# Create necessary directories
+mkdir -p ~/iot-dpos-blockchain/blockchain_data
+mkdir -p ~/iot-dpos-blockchain/static
+mkdir -p ~/iot-dpos-blockchain/data  # For SQLite database
+
+# Set proper permissions
+chmod -R 755 ~/iot-dpos-blockchain
+chown -R $USER:$USER ~/iot-dpos-blockchain
 
 # Create .env file
 

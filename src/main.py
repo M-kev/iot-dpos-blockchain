@@ -39,7 +39,7 @@ class BlockchainNode:
         
         # Initialize components
         self.energy_monitor = EnergyMonitor()
-        self.storage = SQLiteStorage(db_path=f"blockchain_data/{self.node_id}_blockchain.db")
+        self.storage = SQLiteStorage(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'blockchain.db'))
         self.metrics = BlockchainMetrics(self.node_id, self.storage)
         set_metrics_instance(self.metrics)
         self.dpos = DPoS(metrics=self.metrics)

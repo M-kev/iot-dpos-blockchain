@@ -7,67 +7,179 @@ import os
 from consensus.block import Block
 
 class SQLiteStorage:
-    def __init__(self, db_path: str = 'blockchain.db'):
-        self.db_path = db_path
+    def __init__(self, db_path: str = "blockchain.db"):
+        # Ensure the database path is absolute
+        self.db_path = os.path.abspath(db_path)
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        # Initialize database
         self._init_db()
 
     def _init_db(self):
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        # Create tables for blocks and state if not exist
-        c.execute('''CREATE TABLE IF NOT EXISTS blocks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            block_data TEXT NOT NULL
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS state (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )''')
-        conn.commit()
-        conn.close()
+        """Initialize the database with required tables."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Create blocks table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS blocks (
+                    index INTEGER PRIMARY KEY,
+                    timestamp REAL,
+                    validator TEXT,
+                    previous_hash TEXT,
+                    hash TEXT,
+                    transactions TEXT,
+                    data TEXT
+                )
+            ''')
+            
+            conn.commit()
+            conn.close()
+            print(f"[STORAGE] Database initialized at {self.db_path}")
+        except Exception as e:
+            print(f"[STORAGE] Error initializing database: {e}")
+            raise
 
     def save_block(self, block: Block):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('INSERT INTO blocks (block_data) VALUES (?)', (json.dumps(block.to_dict()),))
-        conn.commit()
-        conn.close()
-
-    def get_blocks(self, start_index: int = 0, end_index: int = -1) -> List[Block]:
-        """Get blocks within a range. If end_index is -1, get all blocks from start_index."""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        
-        if end_index == -1:
-            c.execute('SELECT block_data FROM blocks WHERE id > ? ORDER BY id ASC', (start_index,))
-        else:
-            c.execute('SELECT block_data FROM blocks WHERE id > ? AND id <= ? ORDER BY id ASC', 
-                     (start_index, end_index))
+        """Save a block to the database."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             
-        rows = c.fetchall()
-        conn.close()
-        return [Block.from_dict(json.loads(row[0])) for row in rows]
+            # Convert transactions and data to JSON strings
+            transactions_json = json.dumps(block.transactions)
+            data_json = json.dumps(block.data)
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO blocks 
+                (index, timestamp, validator, previous_hash, hash, transactions, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                block.index,
+                block.timestamp,
+                block.validator,
+                block.previous_hash,
+                block.hash,
+                transactions_json,
+                data_json
+            ))
+            
+            conn.commit()
+            conn.close()
+            print(f"[STORAGE] Block {block.index} saved to database")
+        except Exception as e:
+            print(f"[STORAGE] Error saving block: {e}")
+            raise
+
+    def get_block(self, index: int) -> Optional[Block]:
+        """Retrieve a block by its index."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT * FROM blocks WHERE index = ?', (index,))
+            row = cursor.fetchone()
+            
+            if row:
+                # Convert JSON strings back to Python objects
+                transactions = json.loads(row[5])
+                data = json.loads(row[6])
+                
+                block = Block(
+                    index=row[0],
+                    timestamp=row[1],
+                    validator=row[2],
+                    previous_hash=row[3],
+                    transactions=transactions,
+                    data=data
+                )
+                conn.close()
+                return block
+            conn.close()
+            return None
+        except Exception as e:
+            print(f"[STORAGE] Error retrieving block: {e}")
+            raise
 
     def get_chain_length(self) -> int:
-        """Get the total number of blocks in the chain."""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('SELECT COUNT(*) FROM blocks')
-        count = c.fetchone()[0]
-        conn.close()
-        return count
+        """Get the current length of the blockchain."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT COUNT(*) FROM blocks')
+            length = cursor.fetchone()[0]
+            
+            conn.close()
+            return length
+        except Exception as e:
+            print(f"[STORAGE] Error getting chain length: {e}")
+            return 0
 
     def get_latest_block(self) -> Optional[Block]:
-        """Get the most recent block in the chain."""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('SELECT block_data FROM blocks ORDER BY id DESC LIMIT 1')
-        row = c.fetchone()
-        conn.close()
-        return Block.from_dict(json.loads(row[0])) if row else None
+        """Get the latest block in the chain."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT * FROM blocks ORDER BY index DESC LIMIT 1')
+            row = cursor.fetchone()
+            
+            if row:
+                # Convert JSON strings back to Python objects
+                transactions = json.loads(row[5])
+                data = json.loads(row[6])
+                
+                block = Block(
+                    index=row[0],
+                    timestamp=row[1],
+                    validator=row[2],
+                    previous_hash=row[3],
+                    transactions=transactions,
+                    data=data
+                )
+                conn.close()
+                return block
+            conn.close()
+            return None
+        except Exception as e:
+            print(f"[STORAGE] Error retrieving latest block: {e}")
+            raise
+
+    def get_blocks(self, start_index: int, end_index: int) -> List[Block]:
+        """Get a range of blocks from the chain."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT * FROM blocks 
+                WHERE index >= ? AND index <= ?
+                ORDER BY index ASC
+            ''', (start_index, end_index))
+            
+            blocks = []
+            for row in cursor.fetchall():
+                # Convert JSON strings back to Python objects
+                transactions = json.loads(row[5])
+                data = json.loads(row[6])
+                
+                block = Block(
+                    index=row[0],
+                    timestamp=row[1],
+                    validator=row[2],
+                    previous_hash=row[3],
+                    transactions=transactions,
+                    data=data
+                )
+                blocks.append(block)
+            
+            conn.close()
+            return blocks
+        except Exception as e:
+            print(f"[STORAGE] Error retrieving blocks: {e}")
+            raise
 
     def save_state(self, key: str, value: Any):
         conn = sqlite3.connect(self.db_path)
