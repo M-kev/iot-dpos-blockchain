@@ -365,7 +365,7 @@ class BlockchainNode:
         await asyncio.gather(*self.periodic_tasks)
 
     # Publish system metrics
-    async def _publish_metrics_periodically():
+    async def _publish_metrics_periodically(self):
         while True:
             metrics = self.energy_monitor.get_system_metrics()
 
@@ -405,7 +405,7 @@ class BlockchainNode:
             await asyncio.sleep(RASPBERRY_PI_SETTINGS['metrics_interval'])
 
     # Process pending transactions and create blocks if we're the current validator
-    async def _process_transactions_periodically():
+    async def _process_transactions_periodically(self):
         while True:
             # Get previous block's timestamp and index for deterministic validator selection
             previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 for genesis block
