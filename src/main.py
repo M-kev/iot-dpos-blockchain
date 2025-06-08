@@ -48,9 +48,6 @@ class BlockchainNode:
         # Initialize blockchain with genesis block
         self.blocks = []
         self._initialize_blockchain()
-
-        # Update delegates after blockchain initialization to ensure initial set is chosen
-        self.dpos._update_delegates(force_update=True)
         
         # Setup message handlers
         self._setup_handlers()
@@ -327,6 +324,10 @@ class BlockchainNode:
         print("Performing initial chain synchronization...")
         loop.run_until_complete(self._synchronize_chain())
         print("Initial chain synchronization complete.")
+
+        # After initial sync, force update delegates to include active nodes
+        self.dpos._update_delegates(force_update=True)
+        print(f"[DPoS] Initial delegates set after sync: {self.dpos.delegates}")
 
         try:
             while True:
