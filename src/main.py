@@ -110,11 +110,11 @@ class BlockchainNode:
         
     def _setup_handlers(self) -> None:
         """Setup MQTT message handlers."""
-        self.mqtt_client.subscribe('blocks/new', self._handle_new_block)
-        self.mqtt_client.subscribe('transactions/new', self._handle_new_transaction)
-        self.mqtt_client.subscribe('network/status', self._handle_network_status)
-        self.mqtt_client.subscribe('validator/status', self._handle_validator_status)
-        self.mqtt_client.subscribe('metrics', self._handle_incoming_metrics)
+        self.mqtt_client.subscribe(MQTT_TOPICS["BLOCKS"], self._handle_new_block)
+        self.mqtt_client.subscribe(MQTT_TOPICS["TRANSACTIONS"], self._handle_new_transaction)
+        self.mqtt_client.subscribe(MQTT_TOPICS["NETWORK_STATUS"], self._handle_network_status)
+        self.mqtt_client.subscribe(MQTT_TOPICS["VALIDATOR_STATUS"], self._handle_validator_status)
+        self.mqtt_client.subscribe(MQTT_TOPICS["METRICS"], self._handle_incoming_metrics)
         
     def _handle_new_block(self, block_data: dict) -> None:
         """Handle incoming new block."""
