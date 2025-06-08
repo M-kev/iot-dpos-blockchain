@@ -99,6 +99,8 @@ class BlockchainNode:
                 self.dpos.add_validator(node_id, stake)
             print(f"Blockchain initialized with genesis block. Current stake for {self.node_id}: {self.dpos.validators.get(self.node_id, 0)}")
             print(f"[INIT] DPoS validators populated: {self.dpos.validators}")
+            # Initialize delegates immediately after validators are populated
+            self.dpos._update_delegates(force_update=True)
         else:
             raise ValueError("Genesis block does not contain initial stake distribution.")
 
@@ -185,6 +187,8 @@ class BlockchainNode:
         if node_id:
             self.metrics.record_node_metrics(node_id, metrics_data)
             print(f"[METRICS] Node {self.node_id} received metrics from {node_id}. Timestamp: {metrics_data.get('timestamp', 'N/A')}")
+            # After receiving new metrics, update delegates to reflect latest liveness
+            self.dpos._update_delegates()
         
     def _check_system_health(self) -> bool:
         """Check if the system is healthy enough to process blocks."""
