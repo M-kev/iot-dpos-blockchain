@@ -11,7 +11,7 @@ class DPoS:
         self.delegates: List[str] = []
         self.block_time = 3  # seconds
         self.last_block_time = 0
-        self.energy_threshold = 0.8  # Maximum energy usage threshold
+        self.energy_threshold = 5.0  # Maximum energy usage threshold (increased from 0.8 to 5.0)
         self.metrics = metrics  # Store the metrics instance
         self.liveness_threshold = 30 # seconds, if a node hasn't reported metrics in this time, consider it offline
         
