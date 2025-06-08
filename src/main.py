@@ -178,11 +178,12 @@ class BlockchainNode:
                     validator['stake']
                 )
                 
-    def _handle_incoming_metrics(self, metrics_data: Dict[str, Any]) -> None:
+    def _handle_incoming_metrics(self, metrics_data: dict) -> None:
         """Handle incoming metrics from any node and record them."""
         node_id = metrics_data.get('node_id')
         if node_id:
             self.metrics.record_node_metrics(node_id, metrics_data)
+            print(f"[METRICS] Node {self.node_id} received metrics from {node_id}. Timestamp: {metrics_data.get('timestamp', 'N/A')}")
         
     def _check_system_health(self) -> bool:
         """Check if the system is healthy enough to process blocks."""

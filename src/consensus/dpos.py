@@ -31,41 +31,40 @@ class DPoS:
         return False
         
     def _update_delegates(self) -> None:
-        """Update the list of active delegates based on stake and liveness."""
+        """Update the list of active delegates based on stake."""
         sorted_validators = sorted(
             self.validators.items(),
             key=lambda x: x[1],
             reverse=True
         )
-        
-        active_delegates = []
-        current_system_time = time.time()
-
-        for validator_id, stake in sorted_validators:
-            if self.metrics:
-                node_metrics = self.metrics.all_nodes_metrics.get(validator_id)
-                # Only include if metrics exist and are within liveness threshold
-                if node_metrics and (current_system_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
-                    active_delegates.append(validator_id)
-            else:
-                # If no metrics instance, consider all current validators as active for simplicity
-                active_delegates.append(validator_id)
-
-        self.delegates = active_delegates[:self.max_validators]
+        self.delegates = [v[0] for v in sorted_validators[:self.max_validators]]
 
     def get_current_validator(self, reference_index: int) -> Optional[str]:
         """
         Get the current validator based on a reference block's index,
-        considering active delegates. This is a purely deterministic calculation.
+        considering active delegates. This is a purely deterministic calculation based on active delegates.
         """
         if not self.delegates:
             return None
 
+        active_and_live_delegates = []
+        if self.metrics:
+            current_system_time = time.time()
+            for delegate_id in self.delegates:
+                node_metrics = self.metrics.all_nodes_metrics.get(delegate_id)
+                if node_metrics and (current_system_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
+                    active_and_live_delegates.append(delegate_id)
+        else:
+            # If no metrics instance, consider all current delegates as active
+            active_and_live_delegates = self.delegates
+
+        if not active_and_live_delegates:
+            return None
+
         # Determine the expected validator index for the *next* block in the sequence
-        # The validator for block (reference_index + 1) is (reference_index + 1) % num_delegates
-        expected_validator_slot = (reference_index + 1) % len(self.delegates)
+        expected_validator_slot = (reference_index + 1) % len(active_and_live_delegates)
         
-        return self.delegates[expected_validator_slot]
+        return active_and_live_delegates[expected_validator_slot]
 
     def is_time_to_propose_block(self, last_block_timestamp: float) -> bool:
         """Check if enough time has passed since the last block to propose a new one."""
