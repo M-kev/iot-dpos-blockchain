@@ -46,6 +46,27 @@ class SQLiteStorage:
                 )
             ''')
             
+            # Create transactions table for better querying
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS transactions (
+                    tx_hash TEXT PRIMARY KEY,
+                    block_index INTEGER,
+                    tx_type TEXT,
+                    sender TEXT,
+                    recipient TEXT,
+                    amount REAL,
+                    timestamp REAL,
+                    tx_data TEXT,  -- JSON string for additional transaction data
+                    FOREIGN KEY(block_index) REFERENCES blocks(index) ON DELETE CASCADE
+                )
+            ''')
+            
+            # Create indexes for better query performance
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_sender ON transactions(sender)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_recipient ON transactions(recipient)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_block ON transactions(block_index)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp)')
+            
             conn.commit()
             conn.close()
             print(f"[STORAGE] Database and tables verified at {self.db_path}")
@@ -88,12 +109,40 @@ class SQLiteStorage:
                 energy_metrics_json
             ))
             
+            # Save individual transactions to the transactions table
+            self._save_transactions(cursor, block.index, block.transactions, block.timestamp)
+            
             conn.commit()
             conn.close()
             print(f"[STORAGE] Block {block.index} saved to database")
         except Exception as e:
             print(f"[STORAGE] Error saving block: {e}")
             raise
+
+    def _save_transactions(self, cursor, block_index: int, transactions: List[Dict[str, Any]], block_timestamp: float):
+        """Save individual transactions to the transactions table."""
+        import hashlib
+        
+        for tx in transactions:
+            # Generate transaction hash
+            tx_string = json.dumps(tx, sort_keys=True)
+            tx_hash = hashlib.sha256(tx_string.encode()).hexdigest()
+            
+            # Extract transaction fields based on type
+            tx_type = tx.get('type', 'transfer')
+            sender = tx.get('sender', '')
+            recipient = tx.get('recipient', '')
+            amount = tx.get('amount', 0.0)
+            timestamp = tx.get('timestamp', block_timestamp)
+            
+            # Store additional transaction data as JSON
+            tx_data = json.dumps(tx)
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO transactions 
+                (tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data))
 
     def get_block(self, index: int) -> Optional[Block]:
         """Retrieve a block by its index."""
@@ -238,4 +287,142 @@ class SQLiteStorage:
         c.execute('SELECT value FROM state WHERE key = ?', (key,))
         row = c.fetchone()
         conn.close()
-        return json.loads(row[0]) if row else None 
+        return json.loads(row[0]) if row else None
+
+    def get_transactions_by_address(self, address: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get all transactions involving a specific address (as sender or recipient)."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data
+                FROM transactions 
+                WHERE sender = ? OR recipient = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (address, address, limit))
+            
+            transactions = []
+            for row in cursor.fetchall():
+                transactions.append({
+                    'tx_hash': row[0],
+                    'block_index': row[1],
+                    'tx_type': row[2],
+                    'sender': row[3],
+                    'recipient': row[4],
+                    'amount': row[5],
+                    'timestamp': row[6],
+                    'tx_data': json.loads(row[7])
+                })
+            
+            conn.close()
+            return transactions
+        except Exception as e:
+            print(f"[STORAGE] Error retrieving transactions for address {address}: {e}")
+            return []
+
+    def get_transactions_by_block(self, block_index: int) -> List[Dict[str, Any]]:
+        """Get all transactions in a specific block."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data
+                FROM transactions 
+                WHERE block_index = ?
+                ORDER BY timestamp ASC
+            ''', (block_index,))
+            
+            transactions = []
+            for row in cursor.fetchall():
+                transactions.append({
+                    'tx_hash': row[0],
+                    'block_index': row[1],
+                    'tx_type': row[2],
+                    'sender': row[3],
+                    'recipient': row[4],
+                    'amount': row[5],
+                    'timestamp': row[6],
+                    'tx_data': json.loads(row[7])
+                })
+            
+            conn.close()
+            return transactions
+        except Exception as e:
+            print(f"[STORAGE] Error retrieving transactions for block {block_index}: {e}")
+            return []
+
+    def get_transaction_by_hash(self, tx_hash: str) -> Optional[Dict[str, Any]]:
+        """Get a specific transaction by its hash."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data
+                FROM transactions 
+                WHERE tx_hash = ?
+            ''', (tx_hash,))
+            
+            row = cursor.fetchone()
+            if row:
+                transaction = {
+                    'tx_hash': row[0],
+                    'block_index': row[1],
+                    'tx_type': row[2],
+                    'sender': row[3],
+                    'recipient': row[4],
+                    'amount': row[5],
+                    'timestamp': row[6],
+                    'tx_data': json.loads(row[7])
+                }
+                conn.close()
+                return transaction
+            
+            conn.close()
+            return None
+        except Exception as e:
+            print(f"[STORAGE] Error retrieving transaction {tx_hash}: {e}")
+            return None
+
+    def get_transaction_stats(self) -> Dict[str, Any]:
+        """Get transaction statistics."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # Total transactions
+            cursor.execute('SELECT COUNT(*) FROM transactions')
+            total_transactions = cursor.fetchone()[0]
+            
+            # Total amount transferred
+            cursor.execute('SELECT SUM(amount) FROM transactions WHERE tx_type = "transfer"')
+            total_amount = cursor.fetchone()[0] or 0.0
+            
+            # Transactions by type
+            cursor.execute('SELECT tx_type, COUNT(*) FROM transactions GROUP BY tx_type')
+            transactions_by_type = dict(cursor.fetchall())
+            
+            # Unique addresses
+            cursor.execute('''
+                SELECT COUNT(DISTINCT address) FROM (
+                    SELECT sender as address FROM transactions
+                    UNION
+                    SELECT recipient as address FROM transactions
+                )
+            ''')
+            unique_addresses = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            return {
+                'total_transactions': total_transactions,
+                'total_amount_transferred': total_amount,
+                'transactions_by_type': transactions_by_type,
+                'unique_addresses': unique_addresses
+            }
+        except Exception as e:
+            print(f"[STORAGE] Error getting transaction stats: {e}")
+            return {} 

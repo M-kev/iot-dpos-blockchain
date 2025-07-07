@@ -137,4 +137,30 @@ class MQTTClient:
             "active_broker": MQTT_BROKERS[self.active_broker_index]["host"],
             "broker_count": len(MQTT_BROKERS),
             "message_handlers": len(self.message_handlers)
-        } 
+        }
+
+    def validate_transactions(self) -> bool:
+        # Currently only supports stake_distribution transactions
+        for tx in self.transactions:
+            if tx.get('type') != 'stake_distribution':
+                return False
+            if not all(key in tx for key in ['type', 'data', 'timestamp']):
+                return False
+        return True
+
+    def _validate_transaction_structure(self, tx: Dict[str, Any]) -> bool:
+        # Validate based on transaction type
+        tx_type = tx.get('type')
+        
+        if tx_type == 'stake_distribution':
+            return self._validate_stake_distribution(tx)
+        elif tx_type == 'transfer':  # If you add this later
+            return self._validate_transfer(tx)
+        else:
+            return False
+
+    def _validate_stake_distribution(self, tx: Dict[str, Any]) -> bool:
+        required_keys = ['type', 'data', 'timestamp']
+        return all(key in tx for key in required_keys) and \
+               isinstance(tx['data'], dict) and \
+               isinstance(tx['timestamp'], (int, float)) 

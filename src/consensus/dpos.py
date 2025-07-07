@@ -16,6 +16,10 @@ class DPoS:
         self.last_delegate_update_time = 0.0 # Initialize last update time
         self.delegate_update_interval = 300 # 5 minutes in seconds
         
+        # Checkpoint management
+        self.checkpoints: Dict[int, Dict[str, Any]] = {}  # block_height -> checkpoint_data
+        self.checkpoint_interval = 100  # Create checkpoint every 100 blocks
+        
     def add_validator(self, address: str, stake: float) -> bool:
         """Add a new validator with their stake."""
         if len(self.validators) >= self.max_validators:
@@ -29,6 +33,13 @@ class DPoS:
             del self.validators[address]
             return True
         return False
+        
+    def update_stake(self, address: str, new_stake: float) -> bool:
+        if address not in self.validators:
+            return False
+        self.validators[address] = new_stake
+        self._update_delegates(force_update=True)
+        return True
         
     def _update_delegates(self, force_update: bool = False) -> None:
         """Update the list of active delegates based on stake.
@@ -145,4 +156,41 @@ class DPoS:
             'block_time': self.block_time,
             'validator_list': self.delegates
         }
-    # ... existing code ...
+        
+    def create_checkpoint(self, block_height: int) -> None:
+        """Create a checkpoint at the specified block height."""
+        if block_height % self.checkpoint_interval == 0:  # Checkpoint every N blocks
+            checkpoint_data = {
+                'block_height': block_height,
+                'delegates': self.delegates.copy(),
+                'validators': self.validators.copy(),
+                'timestamp': time.time()
+            }
+            self.checkpoints[block_height] = checkpoint_data
+            print(f"[DPoS] Created checkpoint at block height {block_height}")
+            
+    def get_latest_checkpoint(self) -> Optional[Dict[str, Any]]:
+        """Get the latest checkpoint data."""
+        if not self.checkpoints:
+            return None
+        latest_height = max(self.checkpoints.keys())
+        return self.checkpoints[latest_height]
+        
+    def restore_from_checkpoint(self, block_height: int) -> bool:
+        """Restore DPoS state from a checkpoint at the specified block height."""
+        if block_height not in self.checkpoints:
+            return False
+            
+        checkpoint = self.checkpoints[block_height]
+        self.delegates = checkpoint['delegates'].copy()
+        self.validators = checkpoint['validators'].copy()
+        print(f"[DPoS] Restored state from checkpoint at block height {block_height}")
+        return True
+        
+    def get_checkpoint_info(self) -> Dict[str, Any]:
+        """Get information about all checkpoints."""
+        return {
+            'total_checkpoints': len(self.checkpoints),
+            'checkpoint_heights': sorted(self.checkpoints.keys()),
+            'latest_checkpoint': self.get_latest_checkpoint()
+        }
