@@ -139,7 +139,7 @@ class BlockchainNode:
     def _handle_new_block(self, block_data: dict) -> None:
         """Handle incoming new block."""
         block = Block.from_dict(block_data)
-        print(f"[HANDLE BLOCK] Node {self.node_id} received new block: {block.hash} (Index: {block.index})")
+        print(f"[HANDLE BLOCK] Node {self.node_id} received new block: {block.hash} (Block Index: {block.block_index})")
         
         # Skip if we already have this block
         if any(b.hash == block.hash for b in self.blocks):
@@ -148,9 +148,9 @@ class BlockchainNode:
             
         # Determine previous block's details for validation
         previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 or genesis block timestamp if no previous block
-        previous_block_index = self.blocks[-1].index if self.blocks else -1 # Use -1 or genesis block index if no previous block
+        previous_block_index = self.blocks[-1].block_index if self.blocks else -1 # Use -1 or genesis block index if no previous block
 
-        if not self.blocks and block.index == 0: # This is the genesis block and we don't have it
+        if not self.blocks and block.block_index == 0: # This is the genesis block and we don't have it
             previous_block_timestamp = 0.0 # No actual previous block for genesis
             previous_block_index = -1 # No actual previous block for genesis
 
@@ -293,16 +293,16 @@ class BlockchainNode:
                 # Process received blocks
                 # Initialize previous block details for the first block in the received batch
                 current_prev_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0
-                current_prev_block_index = self.blocks[-1].index if self.blocks else -1
+                current_prev_block_index = self.blocks[-1].block_index if self.blocks else -1
 
                 print(f"[SYNC] Node {self.node_id} starting to process {len(blocks_data)} blocks from {peer['id']}. Initial previous block: Index={current_prev_block_index}, Timestamp={current_prev_block_timestamp}")
 
                 for block_data in blocks_data:
                     block = Block.from_dict(block_data)
-                    print(f"[SYNC] Processing block {block.index} ({block.hash}) from peer {peer['id']}")
+                    print(f"[SYNC] Processing block {block.block_index} ({block.hash}) from peer {peer['id']}")
                     
                     # For the genesis block, pass special values as it has no true previous block
-                    if block.index == 0:
+                    if block.block_index == 0:
                         prev_timestamp_for_validation = 0.0
                         prev_index_for_validation = -1
                     else:
@@ -313,7 +313,7 @@ class BlockchainNode:
                     # Verify block
                     if not self.dpos.validate_block(block, 0, prev_timestamp_for_validation, prev_index_for_validation, sync_tolerance=1.0):  # Power usage not critical for sync
                         print(f"[SYNC] Invalid block received from peer {peer['id']} during sync: {block.hash}")
-                        print(f"[SYNC] Validation details: Block Index {block.index}, Timestamp {block.timestamp}, Previous Hash {block.previous_hash}")
+                        print(f"[SYNC] Validation details: Block Index {block.block_index}, Timestamp {block.timestamp}, Previous Hash {block.previous_hash}")
                         print(f"[SYNC] Expected Previous Timestamp: {prev_timestamp_for_validation}, Expected Previous Index: {prev_index_for_validation}")
                         continue
 
@@ -325,16 +325,16 @@ class BlockchainNode:
                     # Verify block chain (previous hash check)
                     # The incoming block must link correctly to the current tip of our local chain
                     # Or if it's the genesis block for an empty chain, its previous hash should be '0'*64
-                    if (block.index == 0 and not self.blocks and block.previous_hash == "0" * 64) or \
+                    if (block.block_index == 0 and not self.blocks and block.previous_hash == "0" * 64) or \
                        (self.blocks and block.previous_hash == self.blocks[-1].hash):
                         self.blocks.append(block)
                         self.storage.save_block(block)
-                        print(f"[SYNC] Added block {block.index} from peer {peer['id']} during sync.")
+                        print(f"[SYNC] Added block {block.block_index} from peer {peer['id']} during sync.")
                         # Update current_prev_block_timestamp and index for the next block in the received batch
                         current_prev_block_timestamp = block.timestamp
-                        current_prev_block_index = block.index
+                        current_prev_block_index = block.block_index
                     else:
-                        print(f"[SYNC] Block chain verification failed for block {block.index} from peer {peer['id']} during sync. Previous hash mismatch: {block.previous_hash} != {self.blocks[-1].hash if self.blocks else 'N/A'}")
+                        print(f"[SYNC] Block chain verification failed for block {block.block_index} from peer {peer['id']} during sync. Previous hash mismatch: {block.previous_hash} != {self.blocks[-1].hash if self.blocks else 'N/A'}")
                         # If a mismatch occurs, stop processing this batch, as chain integrity is broken
                         break
                 
@@ -394,7 +394,7 @@ class BlockchainNode:
                 **local_metrics_for_record, # Use the already prepared and timestamped local metrics
                 'all_validators': self.dpos.validators,
                 'current_network_validator': self.dpos.get_current_validator(
-                    reference_index=self.blocks[-1].index
+                    reference_index=self.blocks[-1].block_index
                 ) if self.blocks else None,
                 'total_blocks': len(self.blocks),
                 'latest_block_hash': self.blocks[-1].hash if self.blocks else None
@@ -413,7 +413,7 @@ class BlockchainNode:
         while True:
             # Get previous block's timestamp and index for deterministic validator selection
             previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 for genesis block
-            previous_block_index = self.blocks[-1].index if self.blocks else -1 # Use -1 for genesis block
+            previous_block_index = self.blocks[-1].block_index if self.blocks else -1 # Use -1 for genesis block
 
             current_validator = self.dpos.get_current_validator(
                 reference_index=previous_block_index
@@ -454,7 +454,7 @@ class BlockchainNode:
 
                 # Create new block
                 new_block = Block(
-                    index=len(self.blocks),
+                    block_index=len(self.blocks),
                     timestamp=time.time(),
                     transactions=self.pending_transactions[:10],  # Limit transactions per block
                     previous_hash=self.blocks[-1].hash if self.blocks else "0" * 64,
@@ -465,7 +465,7 @@ class BlockchainNode:
                     }
                 )
 
-                print(f"[PROCESS TX] New block created with index {new_block.index} and hash {new_block.hash}.")
+                print(f"[PROCESS TX] New block created with index {new_block.block_index} and hash {new_block.hash}.")
 
                 # Record propagation delay
                 self.metrics.record_propagation_delay(time.time() - start_time)

@@ -60,7 +60,7 @@ class DPoS:
         self.last_delegate_update_time = current_time
         print(f"[DPoS] Delegates updated. All potential delegates (sorted by stake): {self.delegates}")
 
-    def get_current_validator(self, reference_index: int) -> Optional[str]:
+    def get_current_validator(self, reference_block_index: int) -> Optional[str]:
         """
         Get the current validator based on a reference block's index,
         considering active and live delegates.
@@ -94,8 +94,8 @@ class DPoS:
 
         # Deterministically select from the active and live delegates
         print(f"[DPoS DEBUG] Delegates: {self.delegates}")
-        print(f"[DPoS DEBUG] Reference index: {reference_index}")
-        expected_validator_slot = (reference_index + 1) % len(active_and_live_delegates)
+        print(f"[DPoS DEBUG] Reference block_index: {reference_block_index}")
+        expected_validator_slot = (reference_block_index + 1) % len(active_and_live_delegates)
         print(f"[DPoS DEBUG] Expected validator slot: {expected_validator_slot}")
         print(f"[DPoS DEBUG] Selected validator: {active_and_live_delegates[expected_validator_slot]}")
         return active_and_live_delegates[expected_validator_slot]
@@ -123,9 +123,9 @@ class DPoS:
             print(f"[DPoS VALIDATE] Block timestamp {block.timestamp} is not strictly greater than previous block timestamp {previous_block_timestamp} (tolerance: {sync_tolerance})")
             return False
 
-        # Check if block index is greater than previous block index
-        if block.index <= previous_block_index:
-            print(f"[DPoS VALIDATE] Block index {block.index} is not strictly greater than previous block index {previous_block_index}")
+        # Check if block_index is greater than previous block_index
+        if block.block_index <= previous_block_index:
+            print(f"[DPoS VALIDATE] Block block_index {block.block_index} is not strictly greater than previous block_index {previous_block_index}")
             return False
 
         # Check if block was created within the allowed time window

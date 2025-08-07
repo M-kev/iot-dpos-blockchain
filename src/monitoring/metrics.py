@@ -127,6 +127,6 @@ class BlockchainMetrics:
         latest_block = self.storage.get_latest_block()
         return latest_block.hash if latest_block else None
 
-    def get_blocks_from_storage(self, start_index: int, end_index: int) -> list:
+    def get_blocks_from_storage(self, start_block_index: int, end_block_index: int) -> list:
         """Retrieve a range of blocks from storage."""
-        return self.storage.get_blocks(start_index, end_index) 
+        return self.storage.get_blocks(start_block_index, end_block_index) 

@@ -37,7 +37,7 @@ class GenesisBlock:
         
         # Create genesis block
         genesis_block = Block(
-            index=0,
+            block_index=0,
             timestamp=genesis_data["timestamp"],
             transactions=genesis_data["transactions"],
             previous_hash="0" * 64,  # First block has no previous hash
@@ -80,7 +80,7 @@ class GenesisBlock:
         """Verify if a block matches the genesis block (ignore non-deterministic fields)."""
         genesis_block = self.create_genesis_block()
         return (
-            block.index == genesis_block.index and
+            block.block_index == genesis_block.block_index and
             block.previous_hash == genesis_block.previous_hash and
             block.validator == genesis_block.validator and
             block.transactions[0]['type'] == genesis_block.transactions[0]['type'] and

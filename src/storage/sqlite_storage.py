@@ -36,7 +36,7 @@ class SQLiteStorage:
             # Create blocks table if it doesn't exist
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS blocks (
-                    "index" INTEGER PRIMARY KEY,
+                    block_index INTEGER PRIMARY KEY,
                     timestamp REAL,
                     validator TEXT,
                     previous_hash TEXT,
@@ -57,7 +57,7 @@ class SQLiteStorage:
                     amount REAL,
                     timestamp REAL,
                     tx_data TEXT,  -- JSON string for additional transaction data
-                    FOREIGN KEY(block_index) REFERENCES blocks(index) ON DELETE CASCADE
+                    FOREIGN KEY(block_index) REFERENCES blocks(block_index) ON DELETE CASCADE
                 )
             ''')
             
@@ -97,10 +97,10 @@ class SQLiteStorage:
             
             cursor.execute('''
                 INSERT OR REPLACE INTO blocks 
-                ("index", timestamp, validator, previous_hash, hash, transactions, energy_metrics)
+                (block_index, timestamp, validator, previous_hash, hash, transactions, energy_metrics)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
-                block.index,
+                block.block_index,
                 block.timestamp,
                 block.validator,
                 block.previous_hash,
@@ -110,11 +110,11 @@ class SQLiteStorage:
             ))
             
             # Save individual transactions to the transactions table
-            self._save_transactions(cursor, block.index, block.transactions, block.timestamp)
+            self._save_transactions(cursor, block.block_index, block.transactions, block.timestamp)
             
             conn.commit()
             conn.close()
-            print(f"[STORAGE] Block {block.index} saved to database")
+            print(f"[STORAGE] Block {block.block_index} saved to database")
         except Exception as e:
             print(f"[STORAGE] Error saving block: {e}")
             raise
@@ -144,13 +144,13 @@ class SQLiteStorage:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data))
 
-    def get_block(self, index: int) -> Optional[Block]:
-        """Retrieve a block by its index."""
+    def get_block(self, block_index: int) -> Optional[Block]:
+        """Retrieve a block by its block_index."""
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT * FROM blocks WHERE "index" = ?', (index,))
+            cursor.execute('SELECT * FROM blocks WHERE block_index = ?', (block_index,))
             row = cursor.fetchone()
             
             if row:
@@ -159,7 +159,7 @@ class SQLiteStorage:
                 energy_metrics = json.loads(row[6])
                 
                 block = Block(
-                    index=row[0],
+                    block_index=row[0],
                     timestamp=row[1],
                     validator=row[2],
                     previous_hash=row[3],
@@ -202,7 +202,7 @@ class SQLiteStorage:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT * FROM blocks ORDER BY "index" DESC LIMIT 1')
+            cursor.execute('SELECT * FROM blocks ORDER BY block_index DESC LIMIT 1')
             row = cursor.fetchone()
             
             if row:
@@ -211,7 +211,7 @@ class SQLiteStorage:
                 energy_metrics = json.loads(row[6])
                 
                 block = Block(
-                    index=row[0],
+                    block_index=row[0],
                     timestamp=row[1],
                     validator=row[2],
                     previous_hash=row[3],
@@ -227,39 +227,21 @@ class SQLiteStorage:
             raise
 
     def get_blocks(self, start_index: int = 0, end_index: int = -1) -> List[Block]:
-        """Get a range of blocks from the chain.
-        
-        Args:
-            start_index: The index of the first block to retrieve (inclusive)
-            end_index: The index of the last block to retrieve (inclusive). If -1, retrieves all blocks from start_index.
-        """
+        """Retrieve a range of blocks from storage."""
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            
             if end_index == -1:
-                # Get all blocks from start_index
-                cursor.execute('''
-                    SELECT * FROM blocks 
-                    WHERE "index" >= ?
-                    ORDER BY "index" ASC
-                ''', (start_index,))
+                cursor.execute('SELECT * FROM blocks WHERE block_index >= ? ORDER BY block_index ASC', (start_index,))
             else:
-                # Get blocks within the specified range
-                cursor.execute('''
-                    SELECT * FROM blocks 
-                    WHERE "index" >= ? AND "index" <= ?
-                    ORDER BY "index" ASC
-                ''', (start_index, end_index))
-            
+                cursor.execute('SELECT * FROM blocks WHERE block_index >= ? AND block_index <= ? ORDER BY block_index ASC', (start_index, end_index))
+            rows = cursor.fetchall()
             blocks = []
-            for row in cursor.fetchall():
-                # Convert JSON strings back to Python objects
+            for row in rows:
                 transactions = json.loads(row[5])
                 energy_metrics = json.loads(row[6])
-                
                 block = Block(
-                    index=row[0],
+                    block_index=row[0],
                     timestamp=row[1],
                     validator=row[2],
                     previous_hash=row[3],
@@ -267,7 +249,6 @@ class SQLiteStorage:
                     energy_metrics=energy_metrics
                 )
                 blocks.append(block)
-            
             conn.close()
             return blocks
         except Exception as e:

@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 
 @dataclass
 class Block:
-    index: int
+    block_index: int
     timestamp: float
     transactions: List[Dict[str, Any]]
     previous_hash: str
@@ -19,7 +19,7 @@ class Block:
     def calculate_hash(self) -> str:
         """Calculate the block hash using SHA-256."""
         block_string = json.dumps({
-            'index': self.index,
+            'block_index': self.block_index,
             'timestamp': self.timestamp,
             'transactions': self.transactions,
             'previous_hash': self.previous_hash,
@@ -31,7 +31,7 @@ class Block:
     def to_dict(self) -> Dict[str, Any]:
         """Convert block to dictionary for serialization."""
         return {
-            'index': self.index,
+            'block_index': self.block_index,
             'timestamp': self.timestamp,
             'transactions': self.transactions,
             'previous_hash': self.previous_hash,
@@ -44,7 +44,7 @@ class Block:
     def from_dict(cls, data: Dict[str, Any]) -> 'Block':
         """Create a Block instance from a dictionary."""
         return cls(
-            index=data['index'],
+            block_index=data['block_index'],
             timestamp=data['timestamp'],
             transactions=data['transactions'],
             previous_hash=data['previous_hash'],
