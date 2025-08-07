@@ -394,7 +394,7 @@ class BlockchainNode:
                 **local_metrics_for_record, # Use the already prepared and timestamped local metrics
                 'all_validators': self.dpos.validators,
                 'current_network_validator': self.dpos.get_current_validator(
-                    reference_index=self.blocks[-1].block_index
+                    reference_block_index=self.blocks[-1].block_index if self.blocks else -1
                 ) if self.blocks else None,
                 'total_blocks': len(self.blocks),
                 'latest_block_hash': self.blocks[-1].hash if self.blocks else None
