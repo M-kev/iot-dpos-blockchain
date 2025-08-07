@@ -10,13 +10,13 @@ MQTT_BROKERS = [
         "host": os.getenv("MQTT_BROKER_1_HOST", "192.168.2.10"),
         "port": int(os.getenv("MQTT_BROKER_1_PORT", "1883")),
         "username": os.getenv("MQTT_BROKER_1_USER", "broker1"),
-        "password": os.getenv("MQTT_BROKER_1_PASS", ""),
+        "password": os.getenv("MQTT_BROKER_1_PASS", "broker1pass"),
     },
     {
         "host": os.getenv("MQTT_BROKER_2_HOST", "192.168.2.11"),
         "port": int(os.getenv("MQTT_BROKER_2_PORT", "1883")),
         "username": os.getenv("MQTT_BROKER_2_USER", "broker2"),
-        "password": os.getenv("MQTT_BROKER_2_PASS", ""),
+        "password": os.getenv("MQTT_BROKER_2_PASS", "broker2pass"),
     }
 ]
 
