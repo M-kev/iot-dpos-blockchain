@@ -416,7 +416,7 @@ class BlockchainNode:
             previous_block_index = self.blocks[-1].block_index if self.blocks else -1 # Use -1 for genesis block
 
             current_validator = self.dpos.get_current_validator(
-                reference_index=previous_block_index
+                reference_block_index=self.blocks[-1].block_index if self.blocks else -1
             )
             print(f"[PROCESS TX] Current DPoS validator: {current_validator}")
             print(f"[PROCESS TX] Node ID: {self.node_id}")
