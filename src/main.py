@@ -370,6 +370,9 @@ class BlockchainNode:
             print(f"[ERROR] Failed to connect to MQTT broker for node {self.node_id}")
         else:
             print(f"[DEBUG] Successfully connected to MQTT broker for node {self.node_id}")
+            # Show which broker we're connected to
+            network_status = self.mqtt_client.get_network_status()
+            print(f"[DEBUG] Connected to broker: {network_status['active_broker']}")
         
         # Perform initial chain synchronization
         print("Performing initial chain synchronization...")

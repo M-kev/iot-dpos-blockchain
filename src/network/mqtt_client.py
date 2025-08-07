@@ -84,19 +84,26 @@ class MQTTClient:
         
     def connect(self) -> bool:
         """Connect to MQTT broker."""
-        try:
-            broker = MQTT_BROKERS[self.active_broker_index]
-            client = self.clients[self.active_broker_index]
-            
-            print(f"[MQTT DEBUG] Attempting to connect to broker: {broker['host']}:{broker['port']}")
-            print(f"[MQTT DEBUG] Using credentials: username={broker.get('username', 'None')}, password={'*' * len(broker.get('password', '')) if broker.get('password') else 'None'}")
-            
-            client.connect(broker['host'], broker['port'])
-            client.loop_start()
-            return True
-        except Exception as e:
-            print(f"[MQTT DEBUG] Failed to connect to MQTT broker: {e}")
-            return False
+        # Try all brokers until one succeeds
+        for attempt in range(len(MQTT_BROKERS)):
+            try:
+                broker = MQTT_BROKERS[self.active_broker_index]
+                client = self.clients[self.active_broker_index]
+                
+                print(f"[MQTT DEBUG] Attempting to connect to broker: {broker['host']}:{broker['port']}")
+                print(f"[MQTT DEBUG] Using credentials: username={broker.get('username', 'None')}, password={'*' * len(broker.get('password', '')) if broker.get('password') else 'None'}")
+                
+                client.connect(broker['host'], broker['port'])
+                client.loop_start()
+                print(f"[MQTT DEBUG] Successfully connected to broker: {broker['host']}:{broker['port']}")
+                return True
+            except Exception as e:
+                print(f"[MQTT DEBUG] Failed to connect to MQTT broker {self.active_broker_index}: {e}")
+                # Try the next broker
+                self.active_broker_index = (self.active_broker_index + 1) % len(MQTT_BROKERS)
+        
+        print(f"[MQTT DEBUG] Failed to connect to any MQTT broker after trying all {len(MQTT_BROKERS)} brokers")
+        return False
             
     def disconnect(self) -> None:
         """Disconnect from all MQTT brokers."""
