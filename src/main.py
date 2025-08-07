@@ -202,7 +202,14 @@ class BlockchainNode:
         if node_id:
             self.metrics.record_node_metrics(node_id, metrics_data)
             print(f"[METRICS] Node {self.node_id} received metrics from {node_id}. Timestamp: {metrics_data.get('timestamp', 'N/A')}")
-            # After receiving new metrics, update delegates to reflect latest liveness
+            # Add metrics as a transaction
+            self.pending_transactions.append({
+                "type": "metrics",
+                "node_id": node_id,
+                "metrics": metrics_data,
+                "timestamp": metrics_data.get("timestamp", time.time())
+            })
+            self.metrics.record_transactions(len(self.pending_transactions))
             self.dpos._update_delegates()
         
     def _check_system_health(self) -> bool:
