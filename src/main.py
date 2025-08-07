@@ -241,50 +241,23 @@ class BlockchainNode:
     async def _synchronize_chain(self) -> None:
         """Synchronize the local blockchain with peer nodes."""
         print("Starting chain synchronization...")
-        
-        # Get list of peer nodes (excluding self)
-        peer_nodes = [
-            node for node in RASPBERRY_PI_NODES 
-            if node['id'] != self.node_id
-        ]
-        
-        if not peer_nodes:
-            print("No peer nodes found for synchronization.")
-            return
-            
-        # Get local chain info
         local_chain_length = len(self.blocks)
-        local_latest_hash = self.blocks[-1].hash if self.blocks else None
+        print(f"Local chain length: {local_chain_length}, Latest hash: {self.blocks[-1].hash if self.blocks else 'None'}")
         
-        print(f"Local chain length: {local_chain_length}, Latest hash: {local_latest_hash}")
+        # Get peer nodes from configuration
+        peers = [node for node in RASPBERRY_PI_NODES if node['id'] != self.node_id]
+        print(f"Found {len(peers)} peer nodes to sync with")
         
-        # Query each peer for their chain info
-        for peer in peer_nodes:
+        for peer in peers:
             try:
-                peer_url = f"http://{peer['ip']}:{peer['dashboard_port']}/api/chain_info"
-                response = await self.http_client.get(peer_url)
-                
-                if response.status_code == 200:
-                    peer_info = response.json()
-                    peer_chain_length = peer_info['chain_length']
-                    peer_latest_hash = peer_info['latest_block_hash']
-                    
-                    print(f"Peer {peer['id']} - Chain length: {peer_chain_length}, Latest hash: {peer_latest_hash}")
-                    
-                    # If peer has a longer chain or different latest hash, sync with it
-                    if peer_chain_length > local_chain_length or (
-                        peer_chain_length == local_chain_length and 
-                        peer_latest_hash != local_latest_hash
-                    ):
-                        print(f"Chain divergence detected with peer {peer['id']}. Syncing...")
-                        await self._sync_with_peer(peer, local_chain_length)
-                        
+                print(f"Attempting to sync with peer: {peer['id']} at {peer['ip']}:{peer['dashboard_port']}")
+                await self._sync_with_peer(peer, local_chain_length)
             except Exception as e:
-                print(f"Error querying peer {peer['id']}: {str(e)}")
-                continue
-                
-        # Force delegate update after synchronization
-        self.dpos._update_delegates(force_update=True)
+                print(f"Error querying peer {peer['id']}: {e}")
+        
+        print("Chain synchronization complete")
+        # Update delegates after synchronization
+        self.dpos._update_delegates()
         print("Delegates updated after chain synchronization.")
         
     async def _sync_with_peer(self, peer: Dict[str, Any], local_chain_length: int) -> None:
