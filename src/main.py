@@ -43,6 +43,8 @@ class BlockchainNode:
         self.metrics = BlockchainMetrics(self.node_id, self.storage)
         set_metrics_instance(self.metrics)
         self.dpos = DPoS(metrics=self.metrics)
+        print(f"[DEBUG] Initializing MQTT client for node: {self.node_id}")
+        print(f"[DEBUG] Node config: {self.node_config}")
         self.mqtt_client = MQTTClient(self.node_id, self.node_config)
         
         # Initialize blockchain with genesis block
@@ -356,8 +358,12 @@ class BlockchainNode:
         # Start dashboard in a separate thread
         self.dashboard_thread.start()
         
-        # Connect to MQTT broker(s)
-        self.mqtt_client.connect()  # Removed 'await' since connect is synchronous
+        # Connect to MQTT broker
+        print(f"[DEBUG] Attempting to connect to MQTT brokers...")
+        if not self.mqtt_client.connect():
+            print(f"[ERROR] Failed to connect to MQTT broker for node {self.node_id}")
+        else:
+            print(f"[DEBUG] Successfully connected to MQTT broker for node {self.node_id}")
         
         # Perform initial chain synchronization
         print("Performing initial chain synchronization...")

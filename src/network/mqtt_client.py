@@ -79,11 +79,14 @@ class MQTTClient:
             broker = MQTT_BROKERS[self.active_broker_index]
             client = self.clients[self.active_broker_index]
             
+            print(f"[MQTT DEBUG] Attempting to connect to broker: {broker['host']}:{broker['port']}")
+            print(f"[MQTT DEBUG] Using credentials: username={broker.get('username', 'None')}, password={'*' * len(broker.get('password', '')) if broker.get('password') else 'None'}")
+            
             client.connect(broker['host'], broker['port'])
             client.loop_start()
             return True
         except Exception as e:
-            print(f"Failed to connect to MQTT broker: {e}")
+            print(f"[MQTT DEBUG] Failed to connect to MQTT broker: {e}")
             return False
             
     def disconnect(self) -> None:
