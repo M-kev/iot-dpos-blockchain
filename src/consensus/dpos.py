@@ -73,16 +73,19 @@ class DPoS:
         active_and_live_delegates = []
         if self.metrics:
             current_system_time = time.time()
+            print(f"[DPoS GET VALIDATOR] Current system time: {current_system_time}")
             for delegate_id in self.delegates:
                 node_metrics = self.metrics.all_nodes_metrics.get(delegate_id)
                 if node_metrics and (current_system_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
                     active_and_live_delegates.append(delegate_id)
+                    print(f"[DPoS GET VALIDATOR] Including {delegate_id} as live (last seen: {current_system_time - node_metrics.get('timestamp', 0):.2f}s ago)")
                 else:
                     status = "no metrics" if not node_metrics else f"stale metrics ({(current_system_time - node_metrics.get('timestamp', 0)):.2f}s ago)"
                     print(f"[DPoS GET VALIDATOR] Excluding {delegate_id} from current validator selection (not live): {status}")
         else:
             # If no metrics instance, consider all current delegates as active (fallback)
             active_and_live_delegates = self.delegates
+            print(f"[DPoS GET VALIDATOR] No metrics instance, using all delegates: {active_and_live_delegates}")
 
         # Sort active and live delegates deterministically by node ID
         active_and_live_delegates = sorted(active_and_live_delegates)
@@ -95,10 +98,12 @@ class DPoS:
         # Deterministically select from the active and live delegates
         print(f"[DPoS DEBUG] Delegates: {self.delegates}")
         print(f"[DPoS DEBUG] Reference block_index: {reference_block_index}")
+        print(f"[DPoS DEBUG] Number of active delegates: {len(active_and_live_delegates)}")
         expected_validator_slot = (reference_block_index + 1) % len(active_and_live_delegates)
         print(f"[DPoS DEBUG] Expected validator slot: {expected_validator_slot}")
-        print(f"[DPoS DEBUG] Selected validator: {active_and_live_delegates[expected_validator_slot]}")
-        return active_and_live_delegates[expected_validator_slot]
+        selected_validator = active_and_live_delegates[expected_validator_slot]
+        print(f"[DPoS DEBUG] Selected validator: {selected_validator}")
+        return selected_validator
 
     def is_time_to_propose_block(self, last_block_timestamp: float) -> bool:
         """Check if enough time has passed since the last block to propose a new one."""

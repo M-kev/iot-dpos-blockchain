@@ -415,6 +415,11 @@ class BlockchainNode:
                     ),
                 }
                 
+                # Add debug logging for validator selection
+                current_block_index = self.blocks[-1].block_index if self.blocks else -1
+                print(f"[DEBUG] Node {self.node_id} using block_index {current_block_index} for validator selection")
+                print(f"[DEBUG] Node {self.node_id} chain length: {len(self.blocks)}")
+                
                 # Record local metrics
                 local_metrics_for_record = metrics_to_publish.copy()
                 self.metrics.record_node_metrics(self.node_id, local_metrics_for_record)
