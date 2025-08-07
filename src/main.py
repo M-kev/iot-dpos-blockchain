@@ -45,7 +45,9 @@ class BlockchainNode:
         self.dpos = DPoS(metrics=self.metrics)
         print(f"[DEBUG] Initializing MQTT client for node: {self.node_id}")
         print(f"[DEBUG] Node config: {self.node_config}")
+        print(f"[DEBUG] About to create MQTTClient instance...")
         self.mqtt_client = MQTTClient(self.node_id, self.node_config)
+        print(f"[DEBUG] MQTTClient instance created successfully")
         
         # Initialize blockchain with genesis block
         self.blocks = []
@@ -360,7 +362,11 @@ class BlockchainNode:
         
         # Connect to MQTT broker
         print(f"[DEBUG] Attempting to connect to MQTT brokers...")
-        if not self.mqtt_client.connect():
+        print(f"[DEBUG] MQTT client object: {self.mqtt_client}")
+        print(f"[DEBUG] MQTT client type: {type(self.mqtt_client)}")
+        connection_result = self.mqtt_client.connect()
+        print(f"[DEBUG] Connection result: {connection_result}")
+        if not connection_result:
             print(f"[ERROR] Failed to connect to MQTT broker for node {self.node_id}")
         else:
             print(f"[DEBUG] Successfully connected to MQTT broker for node {self.node_id}")
@@ -383,42 +389,43 @@ class BlockchainNode:
 
     # Publish system metrics
     async def _publish_metrics_periodically(self):
+        """Publish system metrics periodically."""
         while True:
-            metrics = self.energy_monitor.get_system_metrics()
-
-            # Ensure the local node's own metrics are recorded with the latest timestamp
-            # This ensures that when other nodes receive our metrics, or when our own DPoS updates delegates,
-            # our liveness is correctly reflected.
-            local_metrics_for_record = {
-                'node_id': self.node_id,
-                'timestamp': time.time(), # Use current time for local liveness
-                'cpu_percent': metrics['cpu_percent'],
-                'memory_percent': metrics['memory_percent'],
-                'temperature': metrics['temperature'],
-                'power_usage': metrics['power_usage'],
-                'block_count': len(self.blocks),
-                'pending_transactions': len(self.pending_transactions),
-                'current_stake': self.dpos.validators.get(self.node_id, 0),
-            }
-            self.metrics.record_node_metrics(self.node_id, local_metrics_for_record)
-
-            # Prepare metrics for publishing over MQTT
-            metrics_to_publish = {
-                **local_metrics_for_record, # Use the already prepared and timestamped local metrics
-                'all_validators': self.dpos.validators,
-                'current_network_validator': self.dpos.get_current_validator(
-                    reference_block_index=self.blocks[-1].block_index if self.blocks else -1
-                ) if self.blocks else None,
-                'total_blocks': len(self.blocks),
-                'latest_block_hash': self.blocks[-1].hash if self.blocks else None
-            }
-
-            self.mqtt_client.publish_metrics(metrics_to_publish)
-            print(f"[METRICS] Node {self.node_id} published metrics. Timestamp: {metrics_to_publish['timestamp']}")
-
-            # After publishing, update delegates to ensure our local view is fresh
-            self.dpos._update_delegates()
-
+            try:
+                # Get system metrics
+                system_metrics = self.energy_monitor.get_system_metrics()
+                
+                # Prepare metrics data
+                metrics_to_publish = {
+                    'node_id': self.node_id,
+                    'timestamp': time.time(),
+                    'cpu_percent': system_metrics['cpu_percent'],
+                    'memory_percent': system_metrics['memory_percent'],
+                    'temperature': system_metrics['temperature'],
+                    'power_usage': system_metrics['power_usage'],
+                    'block_count': len(self.blocks),
+                    'pending_transactions': len(self.pending_transactions),
+                    'current_stake': self.dpos.validators.get(self.node_id, 0),
+                    'all_validators': self.dpos.validators,
+                    'current_network_validator': self.dpos.get_current_validator(
+                        reference_block_index=self.blocks[-1].block_index if self.blocks else -1
+                    ),
+                }
+                
+                # Record local metrics
+                local_metrics_for_record = metrics_to_publish.copy()
+                self.metrics.record_node_metrics(self.node_id, local_metrics_for_record)
+                
+                print(f"[DEBUG] About to publish metrics. MQTT client connected: {self.mqtt_client.connected}")
+                print(f"[DEBUG] MQTT client object: {self.mqtt_client}")
+                
+                # Publish metrics
+                self.mqtt_client.publish_metrics(metrics_to_publish)
+                print(f"[METRICS] Node {self.node_id} published metrics. Timestamp: {metrics_to_publish['timestamp']}")
+                
+            except Exception as e:
+                print(f"[ERROR] Failed to publish metrics: {e}")
+                
             await asyncio.sleep(RASPBERRY_PI_SETTINGS['metrics_interval'])
 
     # Process pending transactions and create blocks if we're the current validator

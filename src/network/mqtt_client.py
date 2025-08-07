@@ -9,29 +9,38 @@ from config.network_config import MQTT_BROKERS, MQTT_TOPICS, NETWORK_SETTINGS
 
 class MQTTClient:
     def __init__(self, client_id: str, node_config: Dict[str, Any]):
+        print(f"[MQTT DEBUG] Creating MQTTClient for client_id: {client_id}")
         self.client_id = client_id
         self.node_config = node_config
         self.clients: List[mqtt.Client] = []
         self.connected = False
         self.message_handlers: Dict[str, Callable] = {}
         self.active_broker_index = 0
+        print(f"[MQTT DEBUG] MQTT_BROKERS configuration: {MQTT_BROKERS}")
         self._setup_clients()
+        print(f"[MQTT DEBUG] MQTTClient setup complete")
         
     def _setup_clients(self) -> None:
         """Setup MQTT clients for each broker."""
-        for broker in MQTT_BROKERS:
+        print(f"[MQTT DEBUG] Setting up {len(MQTT_BROKERS)} MQTT clients...")
+        for i, broker in enumerate(MQTT_BROKERS):
+            print(f"[MQTT DEBUG] Setting up broker {i}: {broker['host']}:{broker['port']}")
             client = mqtt.Client(f"{self.client_id}_{broker['host']}")
             client.on_connect = self._on_connect
             client.on_message = self._on_message
             client.on_disconnect = self._on_disconnect
             
             if broker.get('username'):
+                print(f"[MQTT DEBUG] Setting credentials for broker {i}: username={broker['username']}")
                 client.username_pw_set(
                     broker['username'],
                     broker.get('password', '')
                 )
+            else:
+                print(f"[MQTT DEBUG] No credentials for broker {i}")
                 
             self.clients.append(client)
+        print(f"[MQTT DEBUG] Setup complete. Created {len(self.clients)} clients.")
             
     def _on_connect(self, client, userdata, flags, rc) -> None:
         """Handle connection callback."""
