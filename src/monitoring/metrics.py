@@ -70,10 +70,46 @@ class BlockchainMetrics:
         if 'current_network_validator' in metrics_data:
             self.current_network_validator = metrics_data['current_network_validator']
 
+    def get_system_metrics(self) -> dict:
+        # This now returns a dict of all nodes' system metrics
+        return {
+            node_id: {
+                'cpu_percent': data['cpu_percent'],
+                'memory_percent': data['memory_percent'],
+                'temperature': data['temperature'],
+                'power_usage': data['power_usage'],
+                'block_count': data.get('block_count', 0),  # Include block count
+                'pending_transactions': data.get('pending_transactions', 0),  # Include pending transactions
+                'timestamp': data['timestamp']
+            } for node_id, data in self.all_nodes_metrics.items()
+        }
+
+    def get_cumulative_mining_power(self) -> float:
+        """Calculate cumulative power used for mining from genesis to current block."""
+        # Get all blocks from storage
+        total_blocks = self.get_chain_length()
+        if total_blocks == 0:
+            return 0.0
+        
+        # Get blocks from storage to calculate actual cumulative power
+        blocks = self.storage.get_blocks(0, total_blocks - 1)
+        cumulative_power = 0.0
+        
+        for block in blocks:
+            # Extract power usage from block's energy metrics
+            if hasattr(block, 'energy_metrics') and block.energy_metrics:
+                power_usage = block.energy_metrics.get('power_usage', 0.5)
+                cumulative_power += power_usage
+            else:
+                # Fallback to estimated power per block
+                cumulative_power += 0.5
+        
+        return cumulative_power
+
     def get_power_metrics(self) -> dict:
-        # This should return aggregated power or local if for single node dashboard
-        total_power = sum(node_metrics['power_usage'] for node_metrics in self.all_nodes_metrics.values())
-        return {"total_power": total_power}
+        # Return cumulative mining power instead of current total power
+        cumulative_mining_power = self.get_cumulative_mining_power()
+        return {"total_power": cumulative_mining_power}
 
     def get_blockchain_metrics(self) -> dict:
         # This will be refined, currently mostly local node's perspective
@@ -83,18 +119,6 @@ class BlockchainMetrics:
             "consensus_time_avg": sum(self.consensus_time_history) / len(self.consensus_time_history) if self.consensus_time_history else 0,
             "block_time_avg": sum(self.block_time_history) / len(self.block_time_history) if self.block_time_history else 0,
             "total_blocks": total_blocks # Updated to use get_chain_length
-        }
-
-    def get_system_metrics(self) -> dict:
-        # This now returns a dict of all nodes' system metrics
-        return {
-            node_id: {
-                'cpu_percent': data['cpu_percent'],
-                'memory_percent': data['memory_percent'],
-                'temperature': data['temperature'],
-                'power_usage': data['power_usage'],
-                'timestamp': data['timestamp']
-            } for node_id, data in self.all_nodes_metrics.items()
         }
 
     def get_blockchain_size(self) -> int:

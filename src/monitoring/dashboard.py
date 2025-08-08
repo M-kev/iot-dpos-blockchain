@@ -226,7 +226,7 @@ async def get_dashboard():
                     .then(data => {
                         // Overall Metrics
                         document.getElementById('overall-power-usage').textContent = 
-                            `Total: ${data.power_metrics.total_power.toFixed(2)}W`;
+                            `Cumulative Mining: ${data.power_metrics.total_power.toFixed(2)}W`;
                         document.getElementById('block-count').textContent = data.blockchain_metrics.total_blocks;
                         document.getElementById('blockchain-size').textContent = 
                             `${(data.blockchain_size / (1024 * 1024)).toFixed(2)} MB`; // Convert bytes to MB
@@ -322,14 +322,24 @@ async def get_metrics() -> Dict[str, Any]:
     if metrics is None:
         raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
 
+    # Get all the metrics
+    system_metrics = metrics.get_system_metrics()
+    power_metrics = metrics.get_power_metrics()
+    blockchain_metrics = metrics.get_blockchain_metrics()
+    
+    # Debug logging
+    print(f"[DASHBOARD DEBUG] System metrics keys: {list(system_metrics.keys())}")
+    for node_id, node_data in system_metrics.items():
+        print(f"[DASHBOARD DEBUG] {node_id}: block_count={node_data.get('block_count', 'MISSING')}, pending_transactions={node_data.get('pending_transactions', 'MISSING')}")
+    
     return {
         "consensus_protocol": "DPoS",
-        "power_metrics": metrics.get_power_metrics(),
+        "power_metrics": power_metrics,
         "blockchain_metrics": {
-            **metrics.get_blockchain_metrics(),
+            **blockchain_metrics,
             # "total_blocks": 0 # Placeholder for now, to be fetched from storage
         },
-        "system_metrics": metrics.get_system_metrics(), # This now returns all nodes' metrics
+        "system_metrics": system_metrics, # This now returns all nodes' metrics
         "all_validators_metrics": metrics.get_all_validators_metrics(),
         "current_elected_validator": metrics.get_current_elected_validator(),
         "blockchain_size": metrics.get_blockchain_size()
