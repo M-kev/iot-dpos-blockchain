@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 import time
 from storage.sqlite_storage import SQLiteStorage
 from consensus.block import Block
@@ -15,6 +15,10 @@ class BlockchainMetrics:
         
         self.local_node_id = local_node_id
         self.storage = storage
+        
+        # Rolling window of transaction timestamps (seconds)
+        self.transaction_events: deque[float] = deque()
+        self.tps_window_seconds: int = 10
         
         # New: Store metrics for all nodes
         self.all_nodes_metrics = defaultdict(lambda: {
@@ -42,8 +46,14 @@ class BlockchainMetrics:
             self.consensus_time_history.pop(0)
 
     def record_transactions(self, count):
-        # This is more for instantaneous TPS calculation
-        pass
+        """Record 'count' new transactions at the current timestamp for TPS calculation."""
+        now = time.time()
+        for _ in range(max(0, int(count))):
+            self.transaction_events.append(now)
+        # Drop events older than the window
+        cutoff = now - self.tps_window_seconds
+        while self.transaction_events and self.transaction_events[0] < cutoff:
+            self.transaction_events.popleft()
 
     def record_propagation_delay(self, value):
         # For future use or specific tracking
@@ -139,8 +149,16 @@ class BlockchainMetrics:
         return self.current_network_validator
 
     def get_tps(self) -> float:
-        # Simple TPS calculation based on transaction count over time, needs more sophistication
-        return 0 # Placeholder for now 
+        """Compute transactions per second across all nodes over the rolling window."""
+        now = time.time()
+        cutoff = now - self.tps_window_seconds
+        # Trim old events
+        while self.transaction_events and self.transaction_events[0] < cutoff:
+            self.transaction_events.popleft()
+        if not self.transaction_events:
+            return 0.0
+        window_span = max(1e-6, min(self.tps_window_seconds, (self.transaction_events[-1] - self.transaction_events[0]) or self.tps_window_seconds))
+        return len(self.transaction_events) / window_span
 
     def get_chain_length(self) -> int:
         """Return the current length of the blockchain from storage."""

@@ -182,7 +182,8 @@ class BlockchainNode:
     def _handle_new_transaction(self, transaction_data: Dict[str, Any]) -> None:
         """Handle incoming new transaction."""
         self.pending_transactions.append(transaction_data)
-        self.metrics.record_transactions(len(self.pending_transactions))
+        # Record one new transaction event for TPS
+        self.metrics.record_transactions(1)
         print(f"New transaction received: {transaction_data}")
         
     def _handle_network_status(self, status_data: Dict[str, Any]) -> None:
@@ -213,7 +214,8 @@ class BlockchainNode:
                 "metrics": metrics_data,
                 "timestamp": metrics_data.get("timestamp", time.time())
             })
-            self.metrics.record_transactions(len(self.pending_transactions))
+            # Record one new transaction event for TPS
+            self.metrics.record_transactions(1)
             self.dpos._update_delegates()
         
     def _check_system_health(self) -> bool:
