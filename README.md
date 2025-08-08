@@ -10,6 +10,7 @@ This project implements a Delegated Proof of Stake (DPoS) blockchain system opti
 - Raspberry Pi specific optimizations
 - Real-time block validation and propagation
 - Energy-efficient transaction processing
+- Analytics export (CSV) for blocks and transaction lifecycles
 
 ## Architecture
 
@@ -63,6 +64,23 @@ The system consists of the following components:
 ├── config/               # Configuration files
 └── docs/                # Documentation
 ```
+
+## Analytics Export (CSV)
+The dashboard exposes CSV endpoints for offline analysis.
+
+- Download per-block metrics (block intervals, consensus time, power usage):
+  ```bash
+  curl -s "http://<NODE_IP>:<DASHBOARD_PORT>/api/export/block-metrics.csv" -o block-metrics.csv
+  ```
+
+- Download transaction lifecycle data (received vs included times):
+  ```bash
+  curl -s "http://<NODE_IP>:<DASHBOARD_PORT>/api/export/transaction-lifecycle.csv" -o transaction-lifecycle.csv
+  ```
+
+Replace `<NODE_IP>` with the node's IP (e.g., 192.168.2.11) and `<DASHBOARD_PORT>` with the node's configured dashboard port (see `config/network_config.py`).
+
+The CSVs can be opened in Excel, LibreOffice, or analyzed in Python/R.
 
 ## Energy Efficiency Features
 

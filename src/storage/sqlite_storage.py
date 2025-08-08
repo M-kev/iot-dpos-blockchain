@@ -176,7 +176,7 @@ class SQLiteStorage:
                 INSERT INTO transaction_lifecycle (tx_hash, included_timestamp, block_index)
                 VALUES (?, ?, ?)
                 ON CONFLICT(tx_hash) DO UPDATE SET included_timestamp=excluded.included_timestamp, block_index=excluded.block_index
-            ''', (tx_hash, timestamp, block_index))
+            ''', (tx_hash, block_timestamp, block_index))
 
     def save_block_metrics(self, block_index: int, created_timestamp: float, block_interval: float, consensus_time: float, power_usage: float) -> None:
         """Persist per-block analytics to the block_metrics table."""

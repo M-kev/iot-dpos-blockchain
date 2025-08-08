@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from typing import Dict, Any, List
 import json
 import os
+import csv
+import io
 from .metrics import BlockchainMetrics
 from consensus.dpos import DPoS # Import DPoS to access its validator stats
 
@@ -385,4 +387,30 @@ async def get_blockchain_metrics() -> Dict[str, Any]:
 async def get_system_metrics() -> Dict[str, Any]:
     """Get system resource metrics."""
     return metrics.get_system_metrics() 
-    return metrics.get_system_metrics() 
+
+@app.get("/api/export/block-metrics.csv")
+async def export_block_metrics_csv():
+    if metrics is None:
+        raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
+    # Pull data from storage via metrics.storage
+    rows = metrics.storage.export_block_metrics()
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["block_index", "created_timestamp", "block_interval", "consensus_time", "power_usage"])
+    writer.writeheader()
+    for r in rows:
+        writer.writerow(r)
+    output.seek(0)
+    return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=block-metrics.csv"})
+
+@app.get("/api/export/transaction-lifecycle.csv")
+async def export_tx_lifecycle_csv():
+    if metrics is None:
+        raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
+    rows = metrics.storage.export_transaction_lifecycle()
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["tx_hash", "received_timestamp", "included_timestamp", "block_index"])
+    writer.writeheader()
+    for r in rows:
+        writer.writerow(r)
+    output.seek(0)
+    return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=transaction-lifecycle.csv"}) 
