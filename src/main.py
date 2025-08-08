@@ -227,14 +227,22 @@ class BlockchainNode:
             self.metrics.record_node_metrics(node_id, metrics_data)
             print(f"[METRICS] Node {self.node_id} received metrics from {node_id}. Timestamp: {metrics_data.get('timestamp', 'N/A')}")
             # Add metrics as a transaction
-            self.pending_transactions.append({
+            tx = {
                 "type": "metrics",
                 "node_id": node_id,
                 "metrics": metrics_data,
                 "timestamp": metrics_data.get("timestamp", time.time())
-            })
+            }
+            self.pending_transactions.append(tx)
             # Record one new transaction event for TPS
             self.metrics.record_transactions(1)
+            # Record transaction received lifecycle for metrics-derived transactions
+            try:
+                tx_string = json.dumps(tx, sort_keys=True)
+                tx_hash = hashlib.sha256(tx_string.encode()).hexdigest()
+                self.storage.record_tx_received(tx_hash, time.time())
+            except Exception as e:
+                print(f"[LIFECYCLE] Failed to record metrics tx received: {e}")
             self.dpos._update_delegates()
         
     def _check_system_health(self) -> bool:

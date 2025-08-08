@@ -171,12 +171,15 @@ class SQLiteStorage:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data))
 
-            # Mark lifecycle inclusion
+            # Mark lifecycle inclusion and ensure received_timestamp is populated
             cursor.execute('''
-                INSERT INTO transaction_lifecycle (tx_hash, included_timestamp, block_index)
-                VALUES (?, ?, ?)
-                ON CONFLICT(tx_hash) DO UPDATE SET included_timestamp=excluded.included_timestamp, block_index=excluded.block_index
-            ''', (tx_hash, block_timestamp, block_index))
+                INSERT INTO transaction_lifecycle (tx_hash, received_timestamp, included_timestamp, block_index)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(tx_hash) DO UPDATE SET 
+                    included_timestamp=excluded.included_timestamp,
+                    block_index=excluded.block_index,
+                    received_timestamp=COALESCE(transaction_lifecycle.received_timestamp, excluded.received_timestamp, excluded.included_timestamp)
+            ''', (tx_hash, timestamp, block_timestamp, block_index))
 
     def save_block_metrics(self, block_index: int, created_timestamp: float, block_interval: float, consensus_time: float, power_usage: float) -> None:
         """Persist per-block analytics to the block_metrics table."""
