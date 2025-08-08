@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import uvicorn
 import threading
 import socket
+import hashlib
 
 from consensus.block import Block
 from consensus.dpos import DPoS
@@ -168,10 +169,19 @@ class BlockchainNode:
                 self.storage.save_block(block)
                 
                 # Record metrics
-                self.metrics.record_block_time(time.time() - block.timestamp)
+                self.metrics.record_block_time(block.timestamp - previous_block_timestamp)
                 self.metrics.record_consensus_time(
                     block.energy_metrics.get('consensus_time', 0)
                 )
+                
+                # Persist per-block analytics
+                try:
+                    interval = block.timestamp - previous_block_timestamp
+                    consensus_time = block.energy_metrics.get('consensus_time', 0)
+                    power_usage = block.energy_metrics.get('power_usage', 0)
+                    self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
+                except Exception as e:
+                    print(f"[ANALYTICS] Failed saving block metrics for received block {block.block_index}: {e}")
                 
                 print(f"[HANDLE BLOCK] New block {block.hash} added to chain.")
             else:
@@ -184,6 +194,15 @@ class BlockchainNode:
         self.pending_transactions.append(transaction_data)
         # Record one new transaction event for TPS
         self.metrics.record_transactions(1)
+        
+        # Record transaction received time for lifecycle
+        try:
+            tx_string = json.dumps(transaction_data, sort_keys=True)
+            tx_hash = hashlib.sha256(tx_string.encode()).hexdigest()
+            self.storage.record_tx_received(tx_hash, time.time())
+        except Exception as e:
+            print(f"[LIFECYCLE] Failed to record tx received: {e}")
+        
         print(f"New transaction received: {transaction_data}")
         
     def _handle_network_status(self, status_data: Dict[str, Any]) -> None:
@@ -296,7 +315,19 @@ class BlockchainNode:
                                 # Add block to local chain
                                 self.blocks.append(block)
                                 self.storage.save_block(block)
+                                # Persist per-block analytics during sync
+                                try:
+                                    interval = block.timestamp - current_prev_block_timestamp
+                                    consensus_time = block.energy_metrics.get('consensus_time', 0)
+                                    power_usage = block.energy_metrics.get('power_usage', 0)
+                                    self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
+                                except Exception as e:
+                                    print(f"[ANALYTICS] Failed saving block metrics during sync for block {block.block_index}: {e}")
                                 print(f"[SYNC] Added block {block.block_index} from {peer['id']} to local chain")
+                                
+                                # Record metrics for charts during sync
+                                self.metrics.record_block_time(block.timestamp - current_prev_block_timestamp)
+                                self.metrics.record_consensus_time(block.energy_metrics.get('consensus_time', 0))
                                 
                                 # Update chain state for next iteration
                                 current_prev_block_index = block.block_index
@@ -470,7 +501,19 @@ class BlockchainNode:
                 # Add block to local chain and save to storage
                 self.blocks.append(new_block)
                 self.storage.save_block(new_block)
+                # Persist per-block analytics
+                try:
+                    interval = new_block.timestamp - previous_block_timestamp
+                    consensus_time = new_block.energy_metrics.get('consensus_time', 0)
+                    power_usage = new_block.energy_metrics.get('power_usage', 0)
+                    self.storage.save_block_metrics(new_block.block_index, new_block.timestamp, interval, consensus_time, power_usage)
+                except Exception as e:
+                    print(f"[ANALYTICS] Failed saving block metrics for local block {new_block.block_index}: {e}")
                 print(f"[PROCESS TX] Block {new_block.hash} added to local chain and saved.")
+
+                # Record metrics for charts
+                self.metrics.record_block_time(new_block.timestamp - previous_block_timestamp)
+                self.metrics.record_consensus_time(new_block.energy_metrics.get('consensus_time', 0))
 
                 # Publish validator status
                 self.mqtt_client.publish_validator_status({

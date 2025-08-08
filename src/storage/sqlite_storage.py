@@ -46,6 +46,18 @@ class SQLiteStorage:
                 )
             ''')
             
+            # Per-block analytics table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS block_metrics (
+                    block_index INTEGER PRIMARY KEY,
+                    created_timestamp REAL,
+                    block_interval REAL,
+                    consensus_time REAL,
+                    power_usage REAL,
+                    FOREIGN KEY(block_index) REFERENCES blocks(block_index) ON DELETE CASCADE
+                )
+            ''')
+
             # Create transactions table for better querying
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS transactions (
@@ -60,12 +72,27 @@ class SQLiteStorage:
                     FOREIGN KEY(block_index) REFERENCES blocks(block_index) ON DELETE CASCADE
                 )
             ''')
+
+            # Transaction lifecycle table to capture received and inclusion times
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS transaction_lifecycle (
+                    tx_hash TEXT PRIMARY KEY,
+                    received_timestamp REAL,
+                    included_timestamp REAL,
+                    block_index INTEGER,
+                    FOREIGN KEY(block_index) REFERENCES blocks(block_index) ON DELETE SET NULL
+                )
+            ''')
             
             # Create indexes for better query performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_sender ON transactions(sender)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_recipient ON transactions(recipient)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_block ON transactions(block_index)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_block_metrics_created ON block_metrics(created_timestamp)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tx_lifecycle_block ON transaction_lifecycle(block_index)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tx_lifecycle_received ON transaction_lifecycle(received_timestamp)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tx_lifecycle_included ON transaction_lifecycle(included_timestamp)')
             
             conn.commit()
             conn.close()
@@ -143,6 +170,103 @@ class SQLiteStorage:
                 (tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (tx_hash, block_index, tx_type, sender, recipient, amount, timestamp, tx_data))
+
+            # Mark lifecycle inclusion
+            cursor.execute('''
+                INSERT INTO transaction_lifecycle (tx_hash, included_timestamp, block_index)
+                VALUES (?, ?, ?)
+                ON CONFLICT(tx_hash) DO UPDATE SET included_timestamp=excluded.included_timestamp, block_index=excluded.block_index
+            ''', (tx_hash, timestamp, block_index))
+
+    def save_block_metrics(self, block_index: int, created_timestamp: float, block_interval: float, consensus_time: float, power_usage: float) -> None:
+        """Persist per-block analytics to the block_metrics table."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO block_metrics (block_index, created_timestamp, block_interval, consensus_time, power_usage)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(block_index) DO UPDATE SET
+                    created_timestamp=excluded.created_timestamp,
+                    block_interval=excluded.block_interval,
+                    consensus_time=excluded.consensus_time,
+                    power_usage=excluded.power_usage
+            ''', (block_index, created_timestamp, block_interval, consensus_time, power_usage))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[STORAGE] Error saving block metrics: {e}")
+            raise
+
+    def record_tx_received(self, tx_hash: str, received_timestamp: float) -> None:
+        """Record when a transaction was first seen by this node."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO transaction_lifecycle (tx_hash, received_timestamp)
+                VALUES (?, ?)
+                ON CONFLICT(tx_hash) DO UPDATE SET received_timestamp=MIN(COALESCE(transaction_lifecycle.received_timestamp, excluded.received_timestamp), excluded.received_timestamp)
+            ''', (tx_hash, received_timestamp))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[STORAGE] Error recording tx received: {e}")
+            raise
+
+    def get_cumulative_energy_usage(self) -> float:
+        """Return sum of power_usage over all blocks from block_metrics."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT COALESCE(SUM(power_usage), 0) FROM block_metrics')
+            total = cursor.fetchone()[0] or 0.0
+            conn.close()
+            return float(total)
+        except Exception as e:
+            print(f"[STORAGE] Error computing cumulative energy: {e}")
+            return 0.0
+
+    def export_block_metrics(self) -> List[Dict[str, Any]]:
+        """Fetch all block metrics for offline analysis."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT block_index, created_timestamp, block_interval, consensus_time, power_usage FROM block_metrics ORDER BY block_index ASC')
+            rows = cursor.fetchall()
+            conn.close()
+            return [
+                {
+                    'block_index': r[0],
+                    'created_timestamp': r[1],
+                    'block_interval': r[2],
+                    'consensus_time': r[3],
+                    'power_usage': r[4],
+                } for r in rows
+            ]
+        except Exception as e:
+            print(f"[STORAGE] Error exporting block metrics: {e}")
+            return []
+
+    def export_transaction_lifecycle(self) -> List[Dict[str, Any]]:
+        """Fetch transaction lifecycle data for offline analysis."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT tx_hash, received_timestamp, included_timestamp, block_index FROM transaction_lifecycle ORDER BY COALESCE(included_timestamp, received_timestamp) ASC')
+            rows = cursor.fetchall()
+            conn.close()
+            return [
+                {
+                    'tx_hash': r[0],
+                    'received_timestamp': r[1],
+                    'included_timestamp': r[2],
+                    'block_index': r[3]
+                } for r in rows
+            ]
+        except Exception as e:
+            print(f"[STORAGE] Error exporting transaction lifecycle: {e}")
+            return []
 
     def get_block(self, block_index: int) -> Optional[Block]:
         """Retrieve a block by its block_index."""
