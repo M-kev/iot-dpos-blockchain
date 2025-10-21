@@ -1,0 +1,33 @@
+nodes:
+  - id: pi_node_1
+    ip: 192.168.2.11
+    dashboard_port: 8081
+  - id: pi_node_2
+    ip: 192.168.2.12
+    dashboard_port: 8082
+  - id: pi_node_3
+    ip: 192.168.2.13
+    dashboard_port: 8083
+  - id: pi_node_4
+    ip: 192.168.2.14
+    dashboard_port: 8084
+  - id: pi_node_5
+    ip: 192.168.2.15
+    dashboard_port: 8085
+  - id: pi_node_6
+    ip: 192.168.2.16
+    dashboard_port: 8086
+
+mqtt:
+  host: 192.168.2.10
+  port: 1883
+  username: broker1
+  password: broker1pass
+
+topics:
+  metrics: iot/metrics
+  transactions: iot/transactions
+
+defaults:
+  qos: 1
+

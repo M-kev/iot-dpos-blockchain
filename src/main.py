@@ -176,7 +176,8 @@ class BlockchainNode:
                 
                 # Persist per-block analytics
                 try:
-                    interval = block.timestamp - previous_block_timestamp
+                    # For genesis block (index 0), interval should be 0
+                    interval = 0 if block.block_index == 0 else block.timestamp - previous_block_timestamp
                     consensus_time = block.energy_metrics.get('consensus_time', 0)
                     power_usage = block.energy_metrics.get('power_usage', 0)
                     self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
@@ -325,7 +326,8 @@ class BlockchainNode:
                                 self.storage.save_block(block)
                                 # Persist per-block analytics during sync
                                 try:
-                                    interval = block.timestamp - current_prev_block_timestamp
+                                    # For genesis block (index 0), interval should be 0
+                                    interval = 0 if block.block_index == 0 else block.timestamp - current_prev_block_timestamp
                                     consensus_time = block.energy_metrics.get('consensus_time', 0)
                                     power_usage = block.energy_metrics.get('power_usage', 0)
                                     self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
@@ -511,7 +513,8 @@ class BlockchainNode:
                 self.storage.save_block(new_block)
                 # Persist per-block analytics
                 try:
-                    interval = new_block.timestamp - previous_block_timestamp
+                    # For genesis block (index 0), interval should be 0
+                    interval = 0 if new_block.block_index == 0 else new_block.timestamp - previous_block_timestamp
                     consensus_time = new_block.energy_metrics.get('consensus_time', 0)
                     power_usage = new_block.energy_metrics.get('power_usage', 0)
                     self.storage.save_block_metrics(new_block.block_index, new_block.timestamp, interval, consensus_time, power_usage)

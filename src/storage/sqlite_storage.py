@@ -57,7 +57,7 @@ class SQLiteStorage:
                     FOREIGN KEY(block_index) REFERENCES blocks(block_index) ON DELETE CASCADE
                 )
             ''')
-
+            
             # Create transactions table for better querying
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS transactions (
