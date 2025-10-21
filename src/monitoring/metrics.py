@@ -1,5 +1,9 @@
 from collections import defaultdict, deque
 import time
+import psutil
+import threading
+from contextlib import contextmanager
+from typing import Dict, Any, Optional
 from storage.sqlite_storage import SQLiteStorage
 from consensus.block import Block
 
@@ -34,6 +38,16 @@ class BlockchainMetrics:
         })
         self.network_validators = {}
         self.current_network_validator = None
+        
+        # Resource monitoring during block operations
+        self.resource_metrics_history = deque(maxlen=100)  # Keep last 100 operations
+        self.operation_metrics = {
+            'block_validation': [],
+            'block_creation': [],
+            'network_operations': [],
+            'database_operations': []
+        }
+        self._resource_lock = threading.Lock()
 
     def record_block_time(self, value):
         self.block_time_history.append(value)
@@ -171,4 +185,124 @@ class BlockchainMetrics:
 
     def get_blocks_from_storage(self, start_block_index: int, end_block_index: int) -> list:
         """Retrieve a range of blocks from storage."""
-        return self.storage.get_blocks(start_block_index, end_block_index) 
+        return self.storage.get_blocks(start_block_index, end_block_index)
+    
+    @contextmanager
+    def monitor_operation(self, operation_type: str, operation_id: str = None):
+        """Context manager to monitor resource usage during blockchain operations."""
+        if operation_id is None:
+            operation_id = f"{operation_type}_{int(time.time() * 1000)}"
+        
+        # Get initial resource state
+        initial_cpu = psutil.cpu_percent()
+        initial_memory = psutil.virtual_memory()
+        initial_network = psutil.net_io_counters()
+        start_time = time.time()
+        
+        try:
+            yield operation_id
+        finally:
+            # Get final resource state
+            end_time = time.time()
+            final_cpu = psutil.cpu_percent()
+            final_memory = psutil.virtual_memory()
+            final_network = psutil.net_io_counters()
+            
+            # Calculate resource usage during operation
+            operation_metrics = {
+                'operation_id': operation_id,
+                'operation_type': operation_type,
+                'start_time': start_time,
+                'end_time': end_time,
+                'duration': end_time - start_time,
+                'cpu_usage': {
+                    'initial': initial_cpu,
+                    'final': final_cpu,
+                    'avg': (initial_cpu + final_cpu) / 2
+                },
+                'memory_usage': {
+                    'initial_mb': initial_memory.used / (1024 * 1024),
+                    'final_mb': final_memory.used / (1024 * 1024),
+                    'peak_mb': final_memory.used / (1024 * 1024),  # Simplified, could track actual peak
+                    'memory_delta_mb': (final_memory.used - initial_memory.used) / (1024 * 1024)
+                },
+                'network_usage': {
+                    'bytes_sent': final_network.bytes_sent - initial_network.bytes_sent,
+                    'bytes_recv': final_network.bytes_recv - initial_network.bytes_recv,
+                    'packets_sent': final_network.packets_sent - initial_network.packets_sent,
+                    'packets_recv': final_network.packets_recv - initial_network.packets_recv
+                }
+            }
+            
+            # Store metrics
+            with self._resource_lock:
+                self.resource_metrics_history.append(operation_metrics)
+                if operation_type in self.operation_metrics:
+                    self.operation_metrics[operation_type].append(operation_metrics)
+                    # Keep only last 50 operations per type
+                    if len(self.operation_metrics[operation_type]) > 50:
+                        self.operation_metrics[operation_type].pop(0)
+    
+    def get_resource_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive resource utilization metrics."""
+        with self._resource_lock:
+            return {
+                'recent_operations': list(self.resource_metrics_history),
+                'operation_summaries': {
+                    op_type: {
+                        'count': len(ops),
+                        'avg_duration': sum(op['duration'] for op in ops) / len(ops) if ops else 0,
+                        'avg_cpu': sum(op['cpu_usage']['avg'] for op in ops) / len(ops) if ops else 0,
+                        'avg_memory_delta': sum(op['memory_usage']['memory_delta_mb'] for op in ops) / len(ops) if ops else 0,
+                        'total_network_bytes': sum(op['network_usage']['bytes_sent'] + op['network_usage']['bytes_recv'] for op in ops)
+                    } for op_type, ops in self.operation_metrics.items()
+                },
+                'current_system_state': {
+                    'cpu_percent': psutil.cpu_percent(),
+                    'memory_percent': psutil.virtual_memory().percent,
+                    'memory_available_mb': psutil.virtual_memory().available / (1024 * 1024),
+                    'disk_usage_percent': psutil.disk_usage('/').percent,
+                    'network_io': {
+                        'bytes_sent': psutil.net_io_counters().bytes_sent,
+                        'bytes_recv': psutil.net_io_counters().bytes_recv
+                    }
+                }
+            }
+    
+    def get_operation_metrics(self, operation_type: str = None) -> Dict[str, Any]:
+        """Get detailed metrics for specific operation types."""
+        with self._resource_lock:
+            if operation_type:
+                return self.operation_metrics.get(operation_type, [])
+            return self.operation_metrics
+    
+    def record_network_operation(self, operation: str, bytes_transferred: int, duration: float, success: bool = True):
+        """Record network operation metrics."""
+        network_metrics = {
+            'operation': operation,
+            'timestamp': time.time(),
+            'bytes_transferred': bytes_transferred,
+            'duration': duration,
+            'success': success,
+            'throughput_mbps': (bytes_transferred * 8) / (duration * 1_000_000) if duration > 0 else 0
+        }
+        
+        with self._resource_lock:
+            self.operation_metrics['network_operations'].append(network_metrics)
+            if len(self.operation_metrics['network_operations']) > 50:
+                self.operation_metrics['network_operations'].pop(0)
+    
+    def record_database_operation(self, operation: str, duration: float, rows_affected: int = 0):
+        """Record database operation metrics."""
+        db_metrics = {
+            'operation': operation,
+            'timestamp': time.time(),
+            'duration': duration,
+            'rows_affected': rows_affected,
+            'throughput_rows_per_sec': rows_affected / duration if duration > 0 else 0
+        }
+        
+        with self._resource_lock:
+            self.operation_metrics['database_operations'].append(db_metrics)
+            if len(self.operation_metrics['database_operations']) > 50:
+                self.operation_metrics['database_operations'].pop(0) 

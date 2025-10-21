@@ -161,12 +161,21 @@ class BlockchainNode:
 
         # Check energy metrics before validation
         energy_metrics = self.energy_monitor.get_system_metrics()
-        if self.dpos.validate_block(block, energy_metrics['power_usage'], previous_block_timestamp, previous_block_index):
+        
+        # Monitor resource usage during block validation
+        with self.metrics.monitor_operation('block_validation', f"validate_block_{block.block_index}"):
+            validation_result = self.dpos.validate_block(block, energy_metrics['power_usage'], previous_block_timestamp, previous_block_index)
+        
+        if validation_result:
             print(f"[HANDLE BLOCK] Block {block.hash} validation successful.")
             # Verify block chain (check previous hash)
             if self.blocks and block.previous_hash == self.blocks[-1].hash:
                 self.blocks.append(block)
+                
+                # Monitor database operation during block save
+                start_time = time.time()
                 self.storage.save_block(block)
+                self.metrics.record_database_operation('save_block', time.time() - start_time, 1)
                 
                 # Record metrics
                 self.metrics.record_block_time(block.timestamp - previous_block_timestamp)
@@ -180,7 +189,11 @@ class BlockchainNode:
                     interval = 0 if block.block_index == 0 else block.timestamp - previous_block_timestamp
                     consensus_time = block.energy_metrics.get('consensus_time', 0)
                     power_usage = block.energy_metrics.get('power_usage', 0)
+                    
+                    # Monitor database operation for block metrics
+                    start_time = time.time()
                     self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
+                    self.metrics.record_database_operation('save_block_metrics', time.time() - start_time, 1)
                 except Exception as e:
                     print(f"[ANALYTICS] Failed saving block metrics for received block {block.block_index}: {e}")
                 
@@ -297,7 +310,15 @@ class BlockchainNode:
             params = {'start_index': local_chain_length, 'end_index': -1}
             
             print(f"[SYNC] Requesting blocks from {peer['id']} at {peer_url}")
+            
+            # Monitor network operation during HTTP sync
+            sync_start = time.time()
             response = await self.http_client.get(peer_url, params=params)
+            sync_duration = time.time() - sync_start
+            
+            # Estimate data size (rough approximation)
+            response_size = len(str(response.content)) if hasattr(response, 'content') else 0
+            self.metrics.record_network_operation('http_sync', response_size, sync_duration, response.status_code == 200)
             
             if response.status_code == 200:
                 blocks_data = response.json()
@@ -433,8 +454,12 @@ class BlockchainNode:
                 print(f"[DEBUG] About to publish metrics. MQTT client connected: {self.mqtt_client.connected}")
                 print(f"[DEBUG] MQTT client object: {self.mqtt_client}")
                 
-                # Publish metrics
+                # Publish metrics with network monitoring
+                metrics_data_size = len(str(metrics_to_publish).encode('utf-8'))
+                publish_start = time.time()
                 self.mqtt_client.publish_metrics(metrics_to_publish)
+                publish_duration = time.time() - publish_start
+                self.metrics.record_network_operation('publish_metrics', metrics_data_size, publish_duration, True)
                 print(f"[METRICS] Node {self.node_id} published metrics. Timestamp: {metrics_to_publish['timestamp']}")
                 
             except Exception as e:
@@ -486,38 +511,53 @@ class BlockchainNode:
                 print(f"[PROCESS TX] {len(self.pending_transactions)} pending transactions found.")
                 start_time = time.time()
 
-                # Create new block
-                new_block = Block(
-                    block_index=len(self.blocks),
-                    timestamp=time.time(),
-                    transactions=self.pending_transactions[:10],  # Limit transactions per block
-                    previous_hash=self.blocks[-1].hash if self.blocks else "0" * 64,
-                    validator=current_validator,
-                    energy_metrics={
-                        **self.energy_monitor.get_system_metrics(),
-                        'consensus_time': time.time() - start_time
-                    }
-                )
+                # Monitor resource usage during block creation
+                with self.metrics.monitor_operation('block_creation', f"create_block_{len(self.blocks)}"):
+                    # Create new block
+                    new_block = Block(
+                        block_index=len(self.blocks),
+                        timestamp=time.time(),
+                        transactions=self.pending_transactions[:10],  # Limit transactions per block
+                        previous_hash=self.blocks[-1].hash if self.blocks else "0" * 64,
+                        validator=current_validator,
+                        energy_metrics={
+                            **self.energy_monitor.get_system_metrics(),
+                            'consensus_time': time.time() - start_time
+                        }
+                    )
 
                 print(f"[PROCESS TX] New block created with index {new_block.block_index} and hash {new_block.hash}.")
 
                 # Record propagation delay
                 self.metrics.record_propagation_delay(time.time() - start_time)
 
-                # Publish new block
-                self.mqtt_client.publish_block(new_block.to_dict())
+                # Publish new block with network monitoring
+                block_data = new_block.to_dict()
+                block_data_size = len(str(block_data).encode('utf-8'))
+                publish_start = time.time()
+                self.mqtt_client.publish_block(block_data)
+                publish_duration = time.time() - publish_start
+                self.metrics.record_network_operation('publish_block', block_data_size, publish_duration, True)
                 print(f"[PROCESS TX] Node {self.node_id} published new block: {new_block.hash}")
 
                 # Add block to local chain and save to storage
                 self.blocks.append(new_block)
+                
+                # Monitor database operation during block save
+                start_time = time.time()
                 self.storage.save_block(new_block)
+                self.metrics.record_database_operation('save_block', time.time() - start_time, 1)
                 # Persist per-block analytics
                 try:
                     # For genesis block (index 0), interval should be 0
                     interval = 0 if new_block.block_index == 0 else new_block.timestamp - previous_block_timestamp
                     consensus_time = new_block.energy_metrics.get('consensus_time', 0)
                     power_usage = new_block.energy_metrics.get('power_usage', 0)
+                    
+                    # Monitor database operation for block metrics
+                    start_time = time.time()
                     self.storage.save_block_metrics(new_block.block_index, new_block.timestamp, interval, consensus_time, power_usage)
+                    self.metrics.record_database_operation('save_block_metrics', time.time() - start_time, 1)
                 except Exception as e:
                     print(f"[ANALYTICS] Failed saving block metrics for local block {new_block.block_index}: {e}")
                 print(f"[PROCESS TX] Block {new_block.hash} added to local chain and saved.")
