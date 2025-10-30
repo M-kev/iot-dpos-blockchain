@@ -246,17 +246,42 @@ class BlockchainMetrics:
     def get_resource_metrics(self) -> Dict[str, Any]:
         """Get comprehensive resource utilization metrics."""
         with self._resource_lock:
+            # Build operation summaries, handling different operation types
+            operation_summaries = {}
+            for op_type, ops in self.operation_metrics.items():
+                if not ops:
+                    continue
+                
+                # Check if this is a block operation (has cpu_usage, memory_usage, network_usage)
+                if op_type in ['block_validation', 'block_creation']:
+                    operation_summaries[op_type] = {
+                        'count': len(ops),
+                        'avg_duration': sum(op.get('duration', 0) for op in ops) / len(ops) if ops else 0,
+                        'avg_cpu': sum(op.get('cpu_usage', {}).get('avg', 0) for op in ops) / len(ops) if ops else 0,
+                        'avg_memory_delta': sum(op.get('memory_usage', {}).get('memory_delta_mb', 0) for op in ops) / len(ops) if ops else 0,
+                        'total_network_bytes': sum(
+                            op.get('network_usage', {}).get('bytes_sent', 0) + 
+                            op.get('network_usage', {}).get('bytes_recv', 0) for op in ops
+                        )
+                    }
+                elif op_type == 'network_operations':
+                    operation_summaries[op_type] = {
+                        'count': len(ops),
+                        'avg_duration': sum(op.get('duration', 0) for op in ops) / len(ops) if ops else 0,
+                        'total_bytes_transferred': sum(op.get('bytes_transferred', 0) for op in ops),
+                        'avg_throughput_mbps': sum(op.get('throughput_mbps', 0) for op in ops) / len(ops) if ops else 0
+                    }
+                elif op_type == 'database_operations':
+                    operation_summaries[op_type] = {
+                        'count': len(ops),
+                        'avg_duration': sum(op.get('duration', 0) for op in ops) / len(ops) if ops else 0,
+                        'total_rows_affected': sum(op.get('rows_affected', 0) for op in ops),
+                        'avg_throughput_rows_per_sec': sum(op.get('throughput_rows_per_sec', 0) for op in ops) / len(ops) if ops else 0
+                    }
+            
             return {
                 'recent_operations': list(self.resource_metrics_history),
-                'operation_summaries': {
-                    op_type: {
-                        'count': len(ops),
-                        'avg_duration': sum(op['duration'] for op in ops) / len(ops) if ops else 0,
-                        'avg_cpu': sum(op['cpu_usage']['avg'] for op in ops) / len(ops) if ops else 0,
-                        'avg_memory_delta': sum(op['memory_usage']['memory_delta_mb'] for op in ops) / len(ops) if ops else 0,
-                        'total_network_bytes': sum(op['network_usage']['bytes_sent'] + op['network_usage']['bytes_recv'] for op in ops)
-                    } for op_type, ops in self.operation_metrics.items()
-                },
+                'operation_summaries': operation_summaries,
                 'current_system_state': {
                     'cpu_percent': psutil.cpu_percent(),
                     'memory_percent': psutil.virtual_memory().percent,

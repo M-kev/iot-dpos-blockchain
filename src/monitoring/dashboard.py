@@ -446,6 +446,8 @@ async def export_resource_metrics_csv():
         output = io.StringIO()
         
         # Flatten the resource metrics for CSV export
+        # Only export operations from monitor_operation() context manager
+        # (these have cpu_usage, memory_usage, network_usage structure)
         fieldnames = [
             "operation_id", "operation_type", "start_time", "end_time", "duration",
             "cpu_initial", "cpu_final", "cpu_avg",
@@ -457,24 +459,26 @@ async def export_resource_metrics_csv():
         writer.writeheader()
         
         for operation in resource_data.get('recent_operations', []):
-            row = {
-                "operation_id": operation.get('operation_id', ''),
-                "operation_type": operation.get('operation_type', ''),
-                "start_time": operation.get('start_time', 0),
-                "end_time": operation.get('end_time', 0),
-                "duration": operation.get('duration', 0),
-                "cpu_initial": operation.get('cpu_usage', {}).get('initial', 0),
-                "cpu_final": operation.get('cpu_usage', {}).get('final', 0),
-                "cpu_avg": operation.get('cpu_usage', {}).get('avg', 0),
-                "memory_initial_mb": operation.get('memory_usage', {}).get('initial_mb', 0),
-                "memory_final_mb": operation.get('memory_usage', {}).get('final_mb', 0),
-                "memory_delta_mb": operation.get('memory_usage', {}).get('memory_delta_mb', 0),
-                "network_bytes_sent": operation.get('network_usage', {}).get('bytes_sent', 0),
-                "network_bytes_recv": operation.get('network_usage', {}).get('bytes_recv', 0),
-                "network_packets_sent": operation.get('network_usage', {}).get('packets_sent', 0),
-                "network_packets_recv": operation.get('network_usage', {}).get('packets_recv', 0)
-            }
-            writer.writerow(row)
+            # Only export operations that have the full monitoring structure
+            if 'cpu_usage' in operation and 'memory_usage' in operation and 'network_usage' in operation:
+                row = {
+                    "operation_id": operation.get('operation_id', ''),
+                    "operation_type": operation.get('operation_type', ''),
+                    "start_time": operation.get('start_time', 0),
+                    "end_time": operation.get('end_time', 0),
+                    "duration": operation.get('duration', 0),
+                    "cpu_initial": operation.get('cpu_usage', {}).get('initial', 0),
+                    "cpu_final": operation.get('cpu_usage', {}).get('final', 0),
+                    "cpu_avg": operation.get('cpu_usage', {}).get('avg', 0),
+                    "memory_initial_mb": operation.get('memory_usage', {}).get('initial_mb', 0),
+                    "memory_final_mb": operation.get('memory_usage', {}).get('final_mb', 0),
+                    "memory_delta_mb": operation.get('memory_usage', {}).get('memory_delta_mb', 0),
+                    "network_bytes_sent": operation.get('network_usage', {}).get('bytes_sent', 0),
+                    "network_bytes_recv": operation.get('network_usage', {}).get('bytes_recv', 0),
+                    "network_packets_sent": operation.get('network_usage', {}).get('packets_sent', 0),
+                    "network_packets_recv": operation.get('network_usage', {}).get('packets_recv', 0)
+                }
+                writer.writerow(row)
         
         output.seek(0)
         return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=resource-metrics.csv"})
