@@ -18,9 +18,9 @@ echo "[Orchestrator] Using profile=$PROFILE duration=$DURATION rate=$RATE nodes=
 $ROOT/tools/netem/netem.sh eth0 "$PROFILE"
 
 # 2) Start load
-HOST=$(yq '.mqtt.host' "$CFG"); PORT=$(yq '.mqtt.port' "$CFG")
-USER=$(yq '.mqtt.username' "$CFG"); PASS=$(yq '.mqtt.password' "$CFG")
-MTOP=$(yq '.topics.metrics' "$CFG"); TTOP=$(yq '.topics.transactions' "$CFG")
+HOST=$(yq -r '.mqtt.host' "$CFG"); PORT=$(yq -r '.mqtt.port' "$CFG")
+USER=$(yq -r '.mqtt.username' "$CFG"); PASS=$(yq -r '.mqtt.password' "$CFG")
+MTOP=$(yq -r '.topics.metrics' "$CFG"); TTOP=$(yq -r '.topics.transactions' "$CFG")
 
 python3 "$ROOT/tools/load/mqtt_load.py" --host "$HOST" --port "$PORT" \
   --username "$USER" --password "$PASS" \
