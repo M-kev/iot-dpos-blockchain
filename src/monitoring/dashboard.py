@@ -333,7 +333,7 @@ async def get_metrics() -> Dict[str, Any]:
     print(f"[DASHBOARD DEBUG] System metrics keys: {list(system_metrics.keys())}")
     for node_id, node_data in system_metrics.items():
         print(f"[DASHBOARD DEBUG] {node_id}: block_count={node_data.get('block_count', 'MISSING')}, pending_transactions={node_data.get('pending_transactions', 'MISSING')}")
-    
+
     return {
         "consensus_protocol": "DPoS",
         "power_metrics": power_metrics,
@@ -420,14 +420,20 @@ async def get_resource_metrics():
     """Get detailed resource utilization metrics during blockchain operations."""
     if metrics is None:
         raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
-    return metrics.get_resource_metrics()
+    try:
+        return metrics.get_resource_metrics()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting resource metrics: {str(e)}")
 
 @app.get("/api/operation-metrics")
 async def get_operation_metrics(operation_type: str = None):
     """Get detailed metrics for specific operation types (block_validation, block_creation, network_operations, database_operations)."""
     if metrics is None:
         raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
-    return metrics.get_operation_metrics(operation_type)
+    try:
+        return metrics.get_operation_metrics(operation_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting operation metrics: {str(e)}")
 
 @app.get("/api/export/resource-metrics.csv")
 async def export_resource_metrics_csv():
@@ -435,42 +441,45 @@ async def export_resource_metrics_csv():
     if metrics is None:
         raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
     
-    resource_data = metrics.get_resource_metrics()
-    output = io.StringIO()
-    
-    # Flatten the resource metrics for CSV export
-    fieldnames = [
-        "operation_id", "operation_type", "start_time", "end_time", "duration",
-        "cpu_initial", "cpu_final", "cpu_avg",
-        "memory_initial_mb", "memory_final_mb", "memory_delta_mb",
-        "network_bytes_sent", "network_bytes_recv", "network_packets_sent", "network_packets_recv"
-    ]
-    
-    writer = csv.DictWriter(output, fieldnames=fieldnames)
-    writer.writeheader()
-    
-    for operation in resource_data.get('recent_operations', []):
-        row = {
-            "operation_id": operation['operation_id'],
-            "operation_type": operation['operation_type'],
-            "start_time": operation['start_time'],
-            "end_time": operation['end_time'],
-            "duration": operation['duration'],
-            "cpu_initial": operation['cpu_usage']['initial'],
-            "cpu_final": operation['cpu_usage']['final'],
-            "cpu_avg": operation['cpu_usage']['avg'],
-            "memory_initial_mb": operation['memory_usage']['initial_mb'],
-            "memory_final_mb": operation['memory_usage']['final_mb'],
-            "memory_delta_mb": operation['memory_usage']['memory_delta_mb'],
-            "network_bytes_sent": operation['network_usage']['bytes_sent'],
-            "network_bytes_recv": operation['network_usage']['bytes_recv'],
-            "network_packets_sent": operation['network_usage']['packets_sent'],
-            "network_packets_recv": operation['network_usage']['packets_recv']
-        }
-        writer.writerow(row)
-    
-    output.seek(0)
-    return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=resource-metrics.csv"})
+    try:
+        resource_data = metrics.get_resource_metrics()
+        output = io.StringIO()
+        
+        # Flatten the resource metrics for CSV export
+        fieldnames = [
+            "operation_id", "operation_type", "start_time", "end_time", "duration",
+            "cpu_initial", "cpu_final", "cpu_avg",
+            "memory_initial_mb", "memory_final_mb", "memory_delta_mb",
+            "network_bytes_sent", "network_bytes_recv", "network_packets_sent", "network_packets_recv"
+        ]
+        
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        for operation in resource_data.get('recent_operations', []):
+            row = {
+                "operation_id": operation.get('operation_id', ''),
+                "operation_type": operation.get('operation_type', ''),
+                "start_time": operation.get('start_time', 0),
+                "end_time": operation.get('end_time', 0),
+                "duration": operation.get('duration', 0),
+                "cpu_initial": operation.get('cpu_usage', {}).get('initial', 0),
+                "cpu_final": operation.get('cpu_usage', {}).get('final', 0),
+                "cpu_avg": operation.get('cpu_usage', {}).get('avg', 0),
+                "memory_initial_mb": operation.get('memory_usage', {}).get('initial_mb', 0),
+                "memory_final_mb": operation.get('memory_usage', {}).get('final_mb', 0),
+                "memory_delta_mb": operation.get('memory_usage', {}).get('memory_delta_mb', 0),
+                "network_bytes_sent": operation.get('network_usage', {}).get('bytes_sent', 0),
+                "network_bytes_recv": operation.get('network_usage', {}).get('bytes_recv', 0),
+                "network_packets_sent": operation.get('network_usage', {}).get('packets_sent', 0),
+                "network_packets_recv": operation.get('network_usage', {}).get('packets_recv', 0)
+            }
+            writer.writerow(row)
+        
+        output.seek(0)
+        return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=resource-metrics.csv"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exporting resource metrics: {str(e)}")
 
 @app.get("/api/export/operation-metrics.csv")
 async def export_operation_metrics_csv(operation_type: str = None):
@@ -478,81 +487,92 @@ async def export_operation_metrics_csv(operation_type: str = None):
     if metrics is None:
         raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
     
-    operation_data = metrics.get_operation_metrics(operation_type)
-    output = io.StringIO()
-    
-    if operation_type:
-        # Export specific operation type
-        operations = operation_data
-        filename = f"{operation_type}-metrics.csv"
-    else:
-        # Export all operation types
-        operations = []
-        for op_type, ops in operation_data.items():
-            for op in ops:
-                op['operation_type'] = op_type
-                operations.append(op)
-        filename = "all-operation-metrics.csv"
-    
-    if not operations:
-        return StreamingResponse(io.StringIO("No data available"), media_type="text/csv", 
-                               headers={"Content-Disposition": f"attachment; filename={filename}"})
-    
-    # Determine fieldnames based on operation type
-    if operation_type == 'network_operations':
-        fieldnames = ["operation", "timestamp", "bytes_transferred", "duration", "success", "throughput_mbps"]
-    elif operation_type == 'database_operations':
-        fieldnames = ["operation", "timestamp", "duration", "rows_affected", "throughput_rows_per_sec"]
-    else:
-        # Block validation/creation operations
-        fieldnames = [
-            "operation_id", "operation_type", "start_time", "end_time", "duration",
-            "cpu_initial", "cpu_final", "cpu_avg",
-            "memory_initial_mb", "memory_final_mb", "memory_delta_mb",
-            "network_bytes_sent", "network_bytes_recv", "network_packets_sent", "network_packets_recv"
-        ]
-    
-    writer = csv.DictWriter(output, fieldnames=fieldnames)
-    writer.writeheader()
-    
-    for operation in operations:
-        if operation_type == 'network_operations':
-            row = {
-                "operation": operation['operation'],
-                "timestamp": operation['timestamp'],
-                "bytes_transferred": operation['bytes_transferred'],
-                "duration": operation['duration'],
-                "success": operation['success'],
-                "throughput_mbps": operation['throughput_mbps']
-            }
-        elif operation_type == 'database_operations':
-            row = {
-                "operation": operation['operation'],
-                "timestamp": operation['timestamp'],
-                "duration": operation['duration'],
-                "rows_affected": operation['rows_affected'],
-                "throughput_rows_per_sec": operation['throughput_rows_per_sec']
-            }
+    try:
+        operation_data = metrics.get_operation_metrics(operation_type)
+        output = io.StringIO()
+        
+        if operation_type:
+            # Export specific operation type
+            operations = operation_data if isinstance(operation_data, list) else []
+            filename = f"{operation_type}-metrics.csv"
         else:
-            # Block operations
-            row = {
-                "operation_id": operation['operation_id'],
-                "operation_type": operation.get('operation_type', operation_type),
-                "start_time": operation['start_time'],
-                "end_time": operation['end_time'],
-                "duration": operation['duration'],
-                "cpu_initial": operation['cpu_usage']['initial'],
-                "cpu_final": operation['cpu_usage']['final'],
-                "cpu_avg": operation['cpu_usage']['avg'],
-                "memory_initial_mb": operation['memory_usage']['initial_mb'],
-                "memory_final_mb": operation['memory_usage']['final_mb'],
-                "memory_delta_mb": operation['memory_usage']['memory_delta_mb'],
-                "network_bytes_sent": operation['network_usage']['bytes_sent'],
-                "network_bytes_recv": operation['network_usage']['bytes_recv'],
-                "network_packets_sent": operation['network_usage']['packets_sent'],
-                "network_packets_recv": operation['network_usage']['packets_recv']
-            }
-        writer.writerow(row)
-    
-    output.seek(0)
-    return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"}) 
+            # Export all operation types
+            operations = []
+            if isinstance(operation_data, dict):
+                for op_type, ops in operation_data.items():
+                    if isinstance(ops, list):
+                        for op in ops:
+                            op_copy = op.copy()
+                            if 'operation_type' not in op_copy:
+                                op_copy['operation_type'] = op_type
+                            operations.append(op_copy)
+            filename = "all-operation-metrics.csv"
+        
+        if not operations:
+            # Return empty CSV with headers
+            headers_only = io.StringIO()
+            headers_only.write("operation_type,timestamp,duration\n")
+            headers_only.seek(0)
+            return StreamingResponse(headers_only, media_type="text/csv", 
+                                   headers={"Content-Disposition": f"attachment; filename={filename}"})
+        
+        # Determine fieldnames based on operation type
+        if operation_type == 'network_operations':
+            fieldnames = ["operation", "timestamp", "bytes_transferred", "duration", "success", "throughput_mbps"]
+        elif operation_type == 'database_operations':
+            fieldnames = ["operation", "timestamp", "duration", "rows_affected", "throughput_rows_per_sec"]
+        else:
+            # Block validation/creation operations
+            fieldnames = [
+                "operation_id", "operation_type", "start_time", "end_time", "duration",
+                "cpu_initial", "cpu_final", "cpu_avg",
+                "memory_initial_mb", "memory_final_mb", "memory_delta_mb",
+                "network_bytes_sent", "network_bytes_recv", "network_packets_sent", "network_packets_recv"
+            ]
+        
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+        writer.writeheader()
+        
+        for operation in operations:
+            if operation_type == 'network_operations':
+                row = {
+                    "operation": operation.get('operation', ''),
+                    "timestamp": operation.get('timestamp', 0),
+                    "bytes_transferred": operation.get('bytes_transferred', 0),
+                    "duration": operation.get('duration', 0),
+                    "success": operation.get('success', True),
+                    "throughput_mbps": operation.get('throughput_mbps', 0)
+                }
+            elif operation_type == 'database_operations':
+                row = {
+                    "operation": operation.get('operation', ''),
+                    "timestamp": operation.get('timestamp', 0),
+                    "duration": operation.get('duration', 0),
+                    "rows_affected": operation.get('rows_affected', 0),
+                    "throughput_rows_per_sec": operation.get('throughput_rows_per_sec', 0)
+                }
+            else:
+                # Block operations
+                row = {
+                    "operation_id": operation.get('operation_id', ''),
+                    "operation_type": operation.get('operation_type', operation_type if operation_type else ''),
+                    "start_time": operation.get('start_time', 0),
+                    "end_time": operation.get('end_time', 0),
+                    "duration": operation.get('duration', 0),
+                    "cpu_initial": operation.get('cpu_usage', {}).get('initial', 0),
+                    "cpu_final": operation.get('cpu_usage', {}).get('final', 0),
+                    "cpu_avg": operation.get('cpu_usage', {}).get('avg', 0),
+                    "memory_initial_mb": operation.get('memory_usage', {}).get('initial_mb', 0),
+                    "memory_final_mb": operation.get('memory_usage', {}).get('final_mb', 0),
+                    "memory_delta_mb": operation.get('memory_usage', {}).get('memory_delta_mb', 0),
+                    "network_bytes_sent": operation.get('network_usage', {}).get('bytes_sent', 0),
+                    "network_bytes_recv": operation.get('network_usage', {}).get('bytes_recv', 0),
+                    "network_packets_sent": operation.get('network_usage', {}).get('packets_sent', 0),
+                    "network_packets_recv": operation.get('network_usage', {}).get('packets_recv', 0)
+                }
+            writer.writerow(row)
+        
+        output.seek(0)
+        return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exporting operation metrics: {str(e)}") 
