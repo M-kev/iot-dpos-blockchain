@@ -9,7 +9,7 @@ case "$PROFILE" in
     sudo tc qdisc del dev $IFACE root 2>/dev/null || true
     ;;
   baseline)
-    sudo tc qdisc replace dev $IFACE root netem delay 10ms jitter 2ms loss 0.1%
+    sudo tc qdisc replace dev $IFACE root netem delay 10ms 2ms loss 0.1%
     ;;
   moderate)
     sudo tc qdisc replace dev $IFACE root netem delay 80ms 20ms distribution normal loss 1% reorder 1% 50%
