@@ -98,12 +98,10 @@ class DPoS:
                     else:
                         print(f"[DPoS GET VALIDATOR] Excluding {delegate_id} from current validator selection (stale metrics: {time_since_last_metrics:.2f}s ago, threshold: {grace_threshold}s)")
                 else:
-                    # Node has never sent metrics - only allow during startup grace period
-                    if in_startup_grace:
-                        active_and_live_delegates.append(delegate_id)
-                        print(f"[DPoS GET VALIDATOR] Including {delegate_id} as live (startup grace period - no metrics yet)")
-                    else:
-                        print(f"[DPoS GET VALIDATOR] Excluding {delegate_id} from current validator selection (no metrics received, startup grace ended)")
+                    # Node has never sent metrics - exclude from selection
+                    # Even during grace period, we should only select nodes that have sent at least one metric
+                    # This prevents offline nodes from blocking progress
+                    print(f"[DPoS GET VALIDATOR] Excluding {delegate_id} from current validator selection (no metrics ever received - node may be offline)")
         else:
             # If no metrics instance, consider all current delegates as active (fallback)
             active_and_live_delegates = self.delegates
