@@ -109,12 +109,12 @@ class BlockchainNode:
         else:
             raise ValueError("Genesis block does not contain initial stake distribution.")
 
-        # NEW: Initialize all_nodes_metrics with initial validators and current timestamp to mark as 'live'
-        current_init_time = time.time()
+        # Initialize all_nodes_metrics structure but DON'T mark nodes as live until they send metrics
+        # This ensures offline detection works correctly from the start
         for node_id in self.dpos.validators.keys():
             self.metrics.all_nodes_metrics[node_id].update({
                 'node_id': node_id,
-                'timestamp': current_init_time, # Use current time for initial liveness
+                'timestamp': 0,  # 0 means no metrics received yet - won't be considered live
                 'cpu_percent': 0,
                 'memory_percent': 0,
                 'temperature': 0,
@@ -124,7 +124,7 @@ class BlockchainNode:
                 'current_stake': self.dpos.validators.get(node_id, 0),
                 'is_validator': False,
             })
-        print(f"[INIT] Initialized all_nodes_metrics with current time for validators' initial liveness: {current_init_time}")
+        print(f"[INIT] Initialized all_nodes_metrics structure for validators (nodes will be marked live when they send metrics)")
 
     def _start_dashboard(self):
         """Start the dashboard server."""

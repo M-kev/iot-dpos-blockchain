@@ -12,9 +12,13 @@ class DPoS:
         self.block_time = 3  # seconds
         self.energy_threshold = 5.0  # Maximum energy usage threshold
         self.metrics = metrics  # Store the metrics instance
-        self.liveness_threshold = 60 # seconds, if a node hasn't reported metrics in this time, consider it offline
+        # Liveness threshold: Allow 2-3 missed metric intervals (metrics publish every 5s)
+        # This ensures offline detection within ~15 seconds
+        self.liveness_threshold = 15 # seconds, if a node hasn't reported metrics in this time, consider it offline
         self.last_delegate_update_time = 0.0 # Initialize last update time
         self.delegate_update_interval = 300 # 5 minutes in seconds
+        # Grace period for startup: allow nodes that haven't sent metrics yet during first N blocks
+        self.startup_grace_blocks = 10  # Blocks during which we're more lenient with liveness
         
         # Checkpoint management
         self.checkpoints: Dict[int, Dict[str, Any]] = {}  # block_height -> checkpoint_data
@@ -73,15 +77,33 @@ class DPoS:
         active_and_live_delegates = []
         if self.metrics:
             current_system_time = time.time()
+            # During startup grace period (first N blocks), be slightly more lenient
+            in_startup_grace = reference_block_index < self.startup_grace_blocks
+            grace_threshold = self.liveness_threshold * 2 if in_startup_grace else self.liveness_threshold
+            
             print(f"[DPoS GET VALIDATOR] Current system time: {current_system_time}")
+            print(f"[DPoS GET VALIDATOR] Block index {reference_block_index}, startup grace: {in_startup_grace}, liveness threshold: {grace_threshold}s")
+            
             for delegate_id in self.delegates:
                 node_metrics = self.metrics.all_nodes_metrics.get(delegate_id)
-                if node_metrics and (current_system_time - node_metrics.get('timestamp', 0) < self.liveness_threshold):
-                    active_and_live_delegates.append(delegate_id)
-                    print(f"[DPoS GET VALIDATOR] Including {delegate_id} as live (last seen: {current_system_time - node_metrics.get('timestamp', 0):.2f}s ago)")
+                
+                # Check if node has sent metrics (timestamp > 0 means it has actually sent data)
+                has_metrics = node_metrics and node_metrics.get('timestamp', 0) > 0
+                
+                if has_metrics:
+                    time_since_last_metrics = current_system_time - node_metrics.get('timestamp', 0)
+                    if time_since_last_metrics < grace_threshold:
+                        active_and_live_delegates.append(delegate_id)
+                        print(f"[DPoS GET VALIDATOR] Including {delegate_id} as live (last seen: {time_since_last_metrics:.2f}s ago)")
+                    else:
+                        print(f"[DPoS GET VALIDATOR] Excluding {delegate_id} from current validator selection (stale metrics: {time_since_last_metrics:.2f}s ago, threshold: {grace_threshold}s)")
                 else:
-                    status = "no metrics" if not node_metrics else f"stale metrics ({(current_system_time - node_metrics.get('timestamp', 0)):.2f}s ago)"
-                    print(f"[DPoS GET VALIDATOR] Excluding {delegate_id} from current validator selection (not live): {status}")
+                    # Node has never sent metrics - only allow during startup grace period
+                    if in_startup_grace:
+                        active_and_live_delegates.append(delegate_id)
+                        print(f"[DPoS GET VALIDATOR] Including {delegate_id} as live (startup grace period - no metrics yet)")
+                    else:
+                        print(f"[DPoS GET VALIDATOR] Excluding {delegate_id} from current validator selection (no metrics received, startup grace ended)")
         else:
             # If no metrics instance, consider all current delegates as active (fallback)
             active_and_live_delegates = self.delegates
