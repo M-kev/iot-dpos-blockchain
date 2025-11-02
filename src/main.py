@@ -329,50 +329,73 @@ class BlockchainNode:
                 print(f"[SYNC] Received {len(blocks_data)} blocks from {peer['id']}")
                 
                 if blocks_data:
-                    # Get current chain state for validation
-                    current_prev_block_index = self.blocks[-1].block_index if self.blocks else -1
-                    current_prev_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0
+                    # Get the full chain from peer to find common ancestor
+                    # Request all blocks to find where chains diverge
+                    full_chain_params = {'start_index': 0, 'end_index': -1}
+                    full_chain_response = await self.http_client.get(peer_url, params=full_chain_params)
                     
-                    print(f"[SYNC] Node {self.node_id} starting to process {len(blocks_data)} blocks from {peer['id']}. Initial previous block: Index={current_prev_block_index}, Timestamp={current_prev_block_timestamp}")
-                    
-                    for block_data in blocks_data:
-                        try:
-                            block = Block.from_dict(block_data)
-                            print(f"[SYNC] Processing block {block.block_index} ({block.hash}) from peer {peer['id']}")
-                            
-                            # During sync, be more lenient with validator checking
-                            # Only check basic block structure, not strict validator validation
-                            if (block.block_index > current_prev_block_index and 
-                                block.timestamp > current_prev_block_timestamp and
-                                block.previous_hash == (self.blocks[-1].hash if self.blocks else "0" * 64)):
-                                
-                                # Add block to local chain
-                                self.blocks.append(block)
-                                self.storage.save_block(block)
-                                # Persist per-block analytics during sync
-                                try:
-                                    # For genesis block (index 0), interval should be 0
-                                    interval = 0 if block.block_index == 0 else block.timestamp - current_prev_block_timestamp
-                                    consensus_time = block.energy_metrics.get('consensus_time', 0)
-                                    power_usage = block.energy_metrics.get('power_usage', 0)
-                                    self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
-                                except Exception as e:
-                                    print(f"[ANALYTICS] Failed saving block metrics during sync for block {block.block_index}: {e}")
-                                print(f"[SYNC] Added block {block.block_index} from {peer['id']} to local chain")
-                                
-                                # Record metrics for charts during sync
-                                self.metrics.record_block_time(block.timestamp - current_prev_block_timestamp)
-                                self.metrics.record_consensus_time(block.energy_metrics.get('consensus_time', 0))
-                                
-                                # Update chain state for next iteration
-                                current_prev_block_index = block.block_index
-                                current_prev_block_timestamp = block.timestamp
+                    if full_chain_response.status_code == 200:
+                        peer_blocks_data = full_chain_response.json()
+                        print(f"[SYNC] Got full chain from {peer['id']}: {len(peer_blocks_data)} blocks")
+                        
+                        # Find common ancestor (blocks that match by index and hash)
+                        common_ancestor_index = -1
+                        for i, peer_block_data in enumerate(peer_blocks_data):
+                            peer_block = Block.from_dict(peer_block_data)
+                            if i < len(self.blocks):
+                                if (self.blocks[i].block_index == peer_block.block_index and 
+                                    self.blocks[i].hash == peer_block.hash):
+                                    common_ancestor_index = i
+                                else:
+                                    break
                             else:
-                                print(f"[SYNC] Skipping block {block.block_index} from {peer['id']} - validation failed")
-                                
-                        except Exception as e:
-                            print(f"[SYNC] Error processing block from {peer['id']}: {e}")
-                            continue
+                                break
+                        
+                        print(f"[SYNC] Common ancestor with {peer['id']} at block index {common_ancestor_index}")
+                        
+                        # If peer has longer chain, replace our chain from common ancestor onwards
+                        if len(peer_blocks_data) > len(self.blocks) and common_ancestor_index >= 0:
+                            print(f"[SYNC] Peer {peer['id']} has longer chain ({len(peer_blocks_data)} vs {len(self.blocks)}). Adopting peer's chain from block {common_ancestor_index + 1}")
+                            
+                            # Remove blocks after common ancestor from local chain
+                            self.blocks = self.blocks[:common_ancestor_index + 1]
+                            
+                            # Add peer's blocks from after common ancestor
+                            for peer_block_data in peer_blocks_data[common_ancestor_index + 1:]:
+                                try:
+                                    block = Block.from_dict(peer_block_data)
+                                    self.blocks.append(block)
+                                    self.storage.save_block(block)
+                                    # Persist per-block analytics
+                                    try:
+                                        prev_timestamp = self.blocks[-2].timestamp if len(self.blocks) > 1 else 0.0
+                                        interval = 0 if block.block_index == 0 else block.timestamp - prev_timestamp
+                                        consensus_time = block.energy_metrics.get('consensus_time', 0)
+                                        power_usage = block.energy_metrics.get('power_usage', 0)
+                                        self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
+                                    except Exception as e:
+                                        print(f"[ANALYTICS] Failed saving block metrics during sync: {e}")
+                                    print(f"[SYNC] Adopted block {block.block_index} from {peer['id']}")
+                                except Exception as e:
+                                    print(f"[SYNC] Error processing block from {peer['id']}: {e}")
+                                    continue
+                        elif common_ancestor_index >= 0:
+                            # Same length or shorter, but check if we missed any blocks
+                            for peer_block_data in peer_blocks_data[common_ancestor_index + 1:]:
+                                peer_block = Block.from_dict(peer_block_data)
+                                if peer_block.block_index > (self.blocks[-1].block_index if self.blocks else -1):
+                                    # This block is ahead of us, add it
+                                    self.blocks.append(peer_block)
+                                    self.storage.save_block(peer_block)
+                                    try:
+                                        prev_timestamp = self.blocks[-2].timestamp if len(self.blocks) > 1 else 0.0
+                                        interval = 0 if peer_block.block_index == 0 else peer_block.timestamp - prev_timestamp
+                                        consensus_time = peer_block.energy_metrics.get('consensus_time', 0)
+                                        power_usage = peer_block.energy_metrics.get('power_usage', 0)
+                                        self.storage.save_block_metrics(peer_block.block_index, peer_block.timestamp, interval, consensus_time, power_usage)
+                                    except Exception as e:
+                                        print(f"[ANALYTICS] Failed saving block metrics: {e}")
+                                    print(f"[SYNC] Added missing block {peer_block.block_index} from {peer['id']}")
                     
                     print(f"[SYNC] Sync with {peer['id']} complete. Local chain length: {len(self.blocks)}")
                 else:
