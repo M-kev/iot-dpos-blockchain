@@ -165,6 +165,8 @@ class BlockchainNode:
         energy_metrics = self.energy_monitor.get_system_metrics()
         
         # Monitor resource usage during block validation
+        # Note: This only monitors blocks received via MQTT, not blocks synced via HTTP
+        # Historical blocks (created before this feature was deployed) won't have metrics
         with self.metrics.monitor_operation('block_validation', f"validate_block_{block.block_index}"):
             validation_result = self.dpos.validate_block(block, energy_metrics['power_usage'], previous_block_timestamp, previous_block_index)
         
