@@ -339,31 +339,58 @@ class BlockchainNode:
                         print(f"[SYNC] Got full chain from {peer['id']}: {len(peer_blocks_data)} blocks")
                         
                         # Find common ancestor (blocks that match by index and hash)
+                        # Start from genesis (index 0) which should always match
                         common_ancestor_index = -1
-                        for i, peer_block_data in enumerate(peer_blocks_data):
-                            peer_block = Block.from_dict(peer_block_data)
-                            if i < len(self.blocks):
-                                if (self.blocks[i].block_index == peer_block.block_index and 
-                                    self.blocks[i].hash == peer_block.hash):
-                                    common_ancestor_index = i
-                                else:
-                                    break
+                        min_length = min(len(self.blocks), len(peer_blocks_data))
+                        
+                        for i in range(min_length):
+                            peer_block = Block.from_dict(peer_blocks_data[i])
+                            local_block = self.blocks[i]
+                            
+                            # Check if blocks match by both index and hash
+                            if (local_block.block_index == peer_block.block_index and 
+                                local_block.hash == peer_block.hash):
+                                common_ancestor_index = i
                             else:
+                                # Chains have diverged, stop here
                                 break
                         
-                        print(f"[SYNC] Common ancestor with {peer['id']} at block index {common_ancestor_index}")
+                        # If no common ancestor found (shouldn't happen, but handle it)
+                        if common_ancestor_index == -1 and len(self.blocks) > 0 and len(peer_blocks_data) > 0:
+                            # Check if genesis blocks match
+                            local_genesis = self.blocks[0]
+                            peer_genesis = Block.from_dict(peer_blocks_data[0])
+                            print(f"[SYNC] DEBUG: Local genesis index={local_genesis.block_index}, hash={local_genesis.hash[:16]}...")
+                            print(f"[SYNC] DEBUG: Peer genesis index={peer_genesis.block_index}, hash={peer_genesis.hash[:16]}...")
+                            if (local_genesis.block_index == peer_genesis.block_index and 
+                                local_genesis.hash == peer_genesis.hash):
+                                common_ancestor_index = 0
+                                print(f"[SYNC] Genesis blocks match, setting common ancestor to 0")
+                            else:
+                                print(f"[SYNC] WARNING: Genesis blocks don't match! This should never happen.")
+                        
+                        print(f"[SYNC] Common ancestor with {peer['id']} at block index {common_ancestor_index} (local chain: {len(self.blocks)}, peer chain: {len(peer_blocks_data)})")
                         
                         # If peer has longer chain, replace our chain from common ancestor onwards
                         if len(peer_blocks_data) > len(self.blocks) and common_ancestor_index >= 0:
                             print(f"[SYNC] Peer {peer['id']} has longer chain ({len(peer_blocks_data)} vs {len(self.blocks)}). Adopting peer's chain from block {common_ancestor_index + 1}")
                             
                             # Remove blocks after common ancestor from local chain
+                            blocks_removed = len(self.blocks) - (common_ancestor_index + 1)
+                            if blocks_removed > 0:
+                                print(f"[SYNC] Removing {blocks_removed} divergent blocks from local chain")
                             self.blocks = self.blocks[:common_ancestor_index + 1]
                             
                             # Add peer's blocks from after common ancestor
                             for peer_block_data in peer_blocks_data[common_ancestor_index + 1:]:
                                 try:
                                     block = Block.from_dict(peer_block_data)
+                                    
+                                    # Verify block extends our chain correctly
+                                    if self.blocks and block.previous_hash != self.blocks[-1].hash:
+                                        print(f"[SYNC] Warning: Block {block.block_index} previous_hash doesn't match our chain tip. Skipping.")
+                                        continue
+                                    
                                     self.blocks.append(block)
                                     self.storage.save_block(block)
                                     # Persist per-block analytics
@@ -379,12 +406,38 @@ class BlockchainNode:
                                 except Exception as e:
                                     print(f"[SYNC] Error processing block from {peer['id']}: {e}")
                                     continue
+                        elif len(peer_blocks_data) > len(self.blocks) and common_ancestor_index == -1:
+                            # Chains have completely diverged, but peer is longer - adopt if genesis matches
+                            if len(self.blocks) > 0 and len(peer_blocks_data) > 0:
+                                local_genesis = self.blocks[0]
+                                peer_genesis = Block.from_dict(peer_blocks_data[0])
+                                if local_genesis.hash == peer_genesis.hash:
+                                    print(f"[SYNC] Chains diverged but genesis matches. Adopting peer's longer chain.")
+                                    # Replace entire chain with peer's (except genesis which matches)
+                                    self.blocks = [local_genesis]  # Keep our genesis
+                                    # Add all peer blocks after genesis
+                                    for peer_block_data in peer_blocks_data[1:]:
+                                        block = Block.from_dict(peer_block_data)
+                                        self.blocks.append(block)
+                                        self.storage.save_block(block)
+                                        try:
+                                            prev_timestamp = self.blocks[-2].timestamp
+                                            interval = block.timestamp - prev_timestamp
+                                            consensus_time = block.energy_metrics.get('consensus_time', 0)
+                                            power_usage = block.energy_metrics.get('power_usage', 0)
+                                            self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
+                                        except Exception as e:
+                                            print(f"[ANALYTICS] Failed saving block metrics: {e}")
+                                        print(f"[SYNC] Adopted block {block.block_index} from {peer['id']}")
                         elif common_ancestor_index >= 0:
                             # Same length or shorter, but check if we missed any blocks
                             for peer_block_data in peer_blocks_data[common_ancestor_index + 1:]:
                                 peer_block = Block.from_dict(peer_block_data)
                                 if peer_block.block_index > (self.blocks[-1].block_index if self.blocks else -1):
                                     # This block is ahead of us, add it
+                                    if self.blocks and peer_block.previous_hash != self.blocks[-1].hash:
+                                        print(f"[SYNC] Block {peer_block.block_index} doesn't extend our chain. Skipping.")
+                                        continue
                                     self.blocks.append(peer_block)
                                     self.storage.save_block(peer_block)
                                     try:
