@@ -43,6 +43,8 @@ class BlockchainNode:
         self.storage = SQLiteStorage(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'blockchain.db'))
         self.metrics = BlockchainMetrics(self.node_id, self.storage)
         set_metrics_instance(self.metrics)
+        print(f"[METRICS] Resource monitoring initialized for node {self.node_id}")
+        print(f"[METRICS] Monitoring: block_validation, block_creation, network_operations, database_operations")
         self.dpos = DPoS(metrics=self.metrics)
         print(f"[DEBUG] Initializing MQTT client for node: {self.node_id}")
         print(f"[DEBUG] Node config: {self.node_config}")
@@ -383,9 +385,16 @@ class BlockchainNode:
         """Start the blockchain node operations."""
         print(f"Blockchain node {self.node_id} started")
         print(f"Current stake: {self.dpos.validators.get(self.node_id, 0)}")
+        print(f"[METRICS] Resource monitoring active - tracking CPU, RAM, and network load during operations")
         
         # Start dashboard in a separate thread
         self.dashboard_thread.start()
+        print(f"[METRICS] Dashboard API available at http://0.0.0.0:{self.node_config['dashboard_port']}")
+        print(f"[METRICS] Resource metrics endpoints:")
+        print(f"  - GET /api/resource-metrics")
+        print(f"  - GET /api/operation-metrics")
+        print(f"  - GET /api/export/resource-metrics.csv")
+        print(f"  - GET /api/export/operation-metrics.csv?operation_type=<type>")
         
         # Connect to MQTT broker
         print(f"[DEBUG] Attempting to connect to MQTT brokers...")
