@@ -485,20 +485,62 @@ class BlockchainNode:
             previous_block_timestamp = self.blocks[-1].timestamp if self.blocks else 0.0 # Use 0.0 for genesis block
             previous_block_index = self.blocks[-1].block_index if self.blocks else -1 # Use -1 for genesis block
 
+            # Ensure we have a valid chain before selecting validator
+            if not self.blocks:
+                print("[PROCESS TX] No blocks in chain yet, waiting...")
+                await asyncio.sleep(1)
+                continue
+
+            # Use the latest block index as reference for validator selection
+            # This ensures all nodes with the same chain length select the same validator
+            reference_block_index = self.blocks[-1].block_index
+            print(f"[PROCESS TX] Local chain length: {len(self.blocks)}, Latest block index: {reference_block_index}")
+            
             current_validator = self.dpos.get_current_validator(
-                reference_block_index=self.blocks[-1].block_index if self.blocks else -1
+                reference_block_index=reference_block_index
             )
-            print(f"[PROCESS TX] Current DPoS validator: {current_validator}")
+            
+            if not current_validator:
+                print("[PROCESS TX] No valid validator available, waiting...")
+                await asyncio.sleep(2)
+                continue
+                
+            print(f"[PROCESS TX] Current DPoS validator for block {reference_block_index + 1}: {current_validator}")
             print(f"[PROCESS TX] Node ID: {self.node_id}")
 
             # Normalize current_validator and self.node_id for comparison
             print(f"[PROCESS TX DEBUG] Node ID: {self.node_id.strip().lower()}")
             print(f"[PROCESS TX DEBUG] Current Validator: {current_validator.strip().lower()}")
+            
+            # Track how long we've been waiting for the current validator
+            if not hasattr(self, '_validator_wait_start'):
+                self._validator_wait_start = {}
+            
             if current_validator.strip().lower() == self.node_id.strip().lower():
                 print(f"[PROCESS TX] {self.node_id} is the current validator.")
+                # Clear any waiting state
+                if reference_block_index in self._validator_wait_start:
+                    del self._validator_wait_start[reference_block_index]
                 # Proceed with block proposal
             else:
-                print(f"[PROCESS TX] {self.node_id} is not the current validator.")
+                print(f"[PROCESS TX] {self.node_id} is not the current validator. Waiting for {current_validator}...")
+                
+                # Track how long we've been waiting for this validator
+                wait_key = (reference_block_index, current_validator)
+                if wait_key not in self._validator_wait_start:
+                    self._validator_wait_start[wait_key] = time.time()
+                
+                wait_duration = time.time() - self._validator_wait_start[wait_key]
+                timeout = self.dpos.block_time * 3  # Allow 3x block_time before failover
+                
+                # If validator hasn't created block within timeout, sync chain (they might be behind)
+                if wait_duration > timeout:
+                    print(f"[PROCESS TX] Validator {current_validator} hasn't created block {reference_block_index + 1} after {wait_duration:.2f}s. Triggering chain sync...")
+                    del self._validator_wait_start[wait_key]
+                    await self._synchronize_chain()
+                    await asyncio.sleep(1)
+                    continue
+                
                 await asyncio.sleep(1) # Check frequently
                 continue
 
@@ -595,7 +637,13 @@ class BlockchainNode:
         """Periodically synchronize the local blockchain with peer nodes."""
         while True:
             await self._synchronize_chain()
-            await asyncio.sleep(RASPBERRY_PI_SETTINGS['sync_interval'])
+            # Use shorter sync interval during early blocks to ensure consistency
+            chain_length = len(self.blocks)
+            if chain_length < 20:
+                sync_interval = 10  # Sync every 10 seconds during first 20 blocks
+            else:
+                sync_interval = RASPBERRY_PI_SETTINGS['sync_interval']
+            await asyncio.sleep(sync_interval)
 
 if __name__ == "__main__":
     node = BlockchainNode()
