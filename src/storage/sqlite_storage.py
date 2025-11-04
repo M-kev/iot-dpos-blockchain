@@ -119,8 +119,9 @@ class SQLiteStorage:
             cursor = conn.cursor()
             
             # Convert transactions and energy_metrics to JSON strings
-            transactions_json = json.dumps(block.transactions)
-            energy_metrics_json = json.dumps(block.energy_metrics)
+            # Use sort_keys=True to ensure consistent serialization across all nodes
+            transactions_json = json.dumps(block.transactions, sort_keys=True)
+            energy_metrics_json = json.dumps(block.energy_metrics, sort_keys=True)
             
             cursor.execute('''
                 INSERT OR REPLACE INTO blocks 

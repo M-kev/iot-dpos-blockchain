@@ -73,29 +73,74 @@ class BlockchainNode:
         
     def _initialize_blockchain(self) -> None:
         """Initialize blockchain with genesis block and stake distribution."""
+        # Always create a canonical genesis block to ensure consistency
+        genesis = GenesisBlock()
+        canonical_genesis = genesis.create_genesis_block()
+        canonical_genesis_hash = canonical_genesis.hash
+        
         # Load blocks from storage
         stored_blocks = self.storage.get_blocks()
         
-        if stored_blocks:
-            self.blocks = stored_blocks
-            print(f"Loaded {len(self.blocks)} blocks from database.")
-        else:
-            # If no blocks in storage, create and save genesis block
-            genesis = GenesisBlock()
-            genesis_block = genesis.create_genesis_block()
+        if stored_blocks and len(stored_blocks) > 0:
+            # Check if the stored genesis block matches the canonical one
+            stored_genesis = stored_blocks[0]
+            genesis_verifier = GenesisBlock()
             
-            # Verify genesis block (optional, but good practice)
-            if not genesis.verify_genesis_block(genesis_block):
-                raise ValueError("Invalid genesis block after creation")
+            if stored_genesis.block_index == 0:
+                # Verify the stored genesis block matches canonical
+                stored_genesis_hash = stored_genesis.hash
                 
-            self.blocks.append(genesis_block)
-            self.storage.save_block(genesis_block)
-            print("Created and saved genesis block.")
+                # Recalculate hash to ensure it matches (in case of serialization issues)
+                if stored_genesis_hash != canonical_genesis_hash:
+                    print(f"[INIT] WARNING: Stored genesis block hash ({stored_genesis_hash[:16]}...) doesn't match canonical ({canonical_genesis_hash[:16]}...). Replacing with canonical genesis.")
+                    # Replace the genesis block with canonical one
+                    self.blocks = [canonical_genesis]
+                    self.storage.save_block(canonical_genesis)
+                    # Keep the rest of the blocks if any
+                    if len(stored_blocks) > 1:
+                        # Check if subsequent blocks are valid
+                        for block in stored_blocks[1:]:
+                            if block.previous_hash == canonical_genesis.hash or (len(self.blocks) > 0 and block.previous_hash == self.blocks[-1].hash):
+                                self.blocks.append(block)
+                            else:
+                                print(f"[INIT] Discarding block {block.block_index} - chain broken after genesis replacement")
+                    print(f"[INIT] Replaced genesis block. Chain now has {len(self.blocks)} blocks.")
+                elif not genesis_verifier.verify_genesis_block(stored_genesis):
+                    print(f"[INIT] WARNING: Stored genesis block doesn't pass verification. Replacing with canonical genesis.")
+                    self.blocks = [canonical_genesis]
+                    self.storage.save_block(canonical_genesis)
+                    if len(stored_blocks) > 1:
+                        for block in stored_blocks[1:]:
+                            if block.previous_hash == canonical_genesis.hash or (len(self.blocks) > 0 and block.previous_hash == self.blocks[-1].hash):
+                                self.blocks.append(block)
+                            else:
+                                print(f"[INIT] Discarding block {block.block_index} - chain broken after genesis replacement")
+                    print(f"[INIT] Replaced genesis block. Chain now has {len(self.blocks)} blocks.")
+                else:
+                    # Genesis matches, use stored blocks
+                    self.blocks = stored_blocks
+                    print(f"Loaded {len(self.blocks)} blocks from database.")
+            else:
+                # No genesis block in storage, add canonical one
+                print(f"[INIT] WARNING: No genesis block found in storage. Adding canonical genesis.")
+                self.blocks = [canonical_genesis] + stored_blocks
+                self.storage.save_block(canonical_genesis)
+        else:
+            # No blocks in storage, create and save canonical genesis block
+            self.blocks = [canonical_genesis]
+            self.storage.save_block(canonical_genesis)
+            print("Created and saved canonical genesis block.")
         
-        # Verify existing genesis block (loaded or newly created)
+        # Final verification
         genesis_verifier = GenesisBlock()
         if not genesis_verifier.verify_genesis_block(self.blocks[0]):
-            raise ValueError("Invalid genesis block found in chain.")
+            raise ValueError("Invalid genesis block found in chain after initialization.")
+        
+        # Verify genesis hash matches canonical
+        if self.blocks[0].hash != canonical_genesis_hash:
+            print(f"[INIT] CRITICAL: Genesis hash mismatch. Replacing with canonical.")
+            self.blocks[0] = canonical_genesis
+            self.storage.save_block(canonical_genesis)
 
         # Initialize validators with initial stakes from genesis block
         # This assumes initial stakes are in the first transaction of the genesis block
