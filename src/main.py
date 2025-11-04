@@ -400,19 +400,54 @@ class BlockchainNode:
                                 # Chains have diverged, stop here
                                 break
                         
-                        # If no common ancestor found (shouldn't happen, but handle it)
+                        # If no common ancestor found, check genesis blocks
                         if common_ancestor_index == -1 and len(self.blocks) > 0 and len(peer_blocks_data) > 0:
                             # Check if genesis blocks match
                             local_genesis = self.blocks[0]
                             peer_genesis = Block.from_dict(peer_blocks_data[0])
                             print(f"[SYNC] DEBUG: Local genesis index={local_genesis.block_index}, hash={local_genesis.hash[:16]}...")
                             print(f"[SYNC] DEBUG: Peer genesis index={peer_genesis.block_index}, hash={peer_genesis.hash[:16]}...")
-                            if (local_genesis.block_index == peer_genesis.block_index and 
-                                local_genesis.hash == peer_genesis.hash):
+                            
+                            # Create canonical genesis to verify which genesis is correct
+                            from consensus.genesis import GenesisBlock as GenesisBlockClass
+                            canonical_genesis_obj = GenesisBlockClass()
+                            canonical_genesis = canonical_genesis_obj.create_genesis_block()
+                            canonical_genesis_hash = canonical_genesis.hash
+                            
+                            local_is_canonical = (local_genesis.hash == canonical_genesis_hash)
+                            peer_is_canonical = (peer_genesis.hash == canonical_genesis_hash)
+                            
+                            print(f"[SYNC] Canonical genesis hash: {canonical_genesis_hash[:16]}...")
+                            print(f"[SYNC] Local genesis is canonical: {local_is_canonical}, Peer genesis is canonical: {peer_is_canonical}")
+                            
+                            if local_genesis.hash == peer_genesis.hash:
+                                # They match each other (even if not canonical)
                                 common_ancestor_index = 0
                                 print(f"[SYNC] Genesis blocks match, setting common ancestor to 0")
+                            elif local_is_canonical and not peer_is_canonical:
+                                # We have canonical, peer doesn't - we'll keep our canonical genesis and adopt peer's blocks from index 1
+                                print(f"[SYNC] Local has canonical genesis, peer doesn't. Will adopt peer's chain starting from block 1 (skipping non-canonical genesis).")
+                                common_ancestor_index = 0  # Treat as matching at genesis (we keep our canonical)
+                                # Note: We'll skip peer_blocks_data[0] during adoption since we keep our canonical genesis
+                            elif not local_is_canonical and peer_is_canonical:
+                                # Peer has canonical, we don't - replace our genesis with canonical
+                                print(f"[SYNC] Peer has canonical genesis, we don't. Replacing local genesis with canonical.")
+                                canonical_genesis_obj2 = GenesisBlockClass()
+                                canonical_genesis2 = canonical_genesis_obj2.create_genesis_block()
+                                self.blocks[0] = canonical_genesis2
+                                self.storage.save_block(canonical_genesis2)
+                                common_ancestor_index = 0
+                            elif not local_is_canonical and not peer_is_canonical:
+                                # Neither is canonical - replace both with canonical
+                                print(f"[SYNC] Neither genesis is canonical. Replacing local with canonical.")
+                                canonical_genesis_obj3 = GenesisBlockClass()
+                                canonical_genesis3 = canonical_genesis_obj3.create_genesis_block()
+                                self.blocks[0] = canonical_genesis3
+                                self.storage.save_block(canonical_genesis3)
+                                peer_blocks_data[0] = canonical_genesis3.to_dict()
+                                common_ancestor_index = 0
                             else:
-                                print(f"[SYNC] WARNING: Genesis blocks don't match! This should never happen.")
+                                print(f"[SYNC] WARNING: Both genesis blocks are canonical but don't match! This is a bug.")
                         
                         print(f"[SYNC] Common ancestor with {peer['id']} at block index {common_ancestor_index} (local chain: {len(self.blocks)}, peer chain: {len(peer_blocks_data)})")
                         
@@ -427,30 +462,42 @@ class BlockchainNode:
                             self.blocks = self.blocks[:common_ancestor_index + 1]
                             
                             # Add peer's blocks from after common ancestor
-                            for peer_block_data in peer_blocks_data[common_ancestor_index + 1:]:
-                                try:
-                                    block = Block.from_dict(peer_block_data)
-                                    
-                                    # Verify block extends our chain correctly
-                                    if self.blocks and block.previous_hash != self.blocks[-1].hash:
-                                        print(f"[SYNC] Warning: Block {block.block_index} previous_hash doesn't match our chain tip. Skipping.")
-                                        continue
-                                    
-                                    self.blocks.append(block)
-                                    self.storage.save_block(block)
-                                    # Persist per-block analytics
+                            # Special handling: if we kept canonical genesis but peer's first block references non-canonical genesis
+                            start_index = common_ancestor_index + 1
+                            can_adopt_chain = True
+                            if start_index == 1 and len(peer_blocks_data) > 1:
+                                # Check if peer's block 1 can connect to our canonical genesis
+                                peer_block_1 = Block.from_dict(peer_blocks_data[1])
+                                if peer_block_1.previous_hash != self.blocks[0].hash:
+                                    print(f"[SYNC] Cannot adopt peer's chain: block 1 references non-canonical genesis ({peer_block_1.previous_hash[:16]}... vs canonical {self.blocks[0].hash[:16]}...).")
+                                    print(f"[SYNC] Peer likely needs to restart to use canonical genesis. Skipping this peer.")
+                                    can_adopt_chain = False
+                            
+                            if can_adopt_chain:
+                                for peer_block_data in peer_blocks_data[start_index:]:
                                     try:
-                                        prev_timestamp = self.blocks[-2].timestamp if len(self.blocks) > 1 else 0.0
-                                        interval = 0 if block.block_index == 0 else block.timestamp - prev_timestamp
-                                        consensus_time = block.energy_metrics.get('consensus_time', 0)
-                                        power_usage = block.energy_metrics.get('power_usage', 0)
-                                        self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
+                                        block = Block.from_dict(peer_block_data)
+                                    
+                                        # Verify block extends our chain correctly
+                                        if self.blocks and block.previous_hash != self.blocks[-1].hash:
+                                            print(f"[SYNC] Warning: Block {block.block_index} previous_hash doesn't match our chain tip. Skipping.")
+                                            continue
+                                        
+                                        self.blocks.append(block)
+                                        self.storage.save_block(block)
+                                        # Persist per-block analytics
+                                        try:
+                                            prev_timestamp = self.blocks[-2].timestamp if len(self.blocks) > 1 else 0.0
+                                            interval = 0 if block.block_index == 0 else block.timestamp - prev_timestamp
+                                            consensus_time = block.energy_metrics.get('consensus_time', 0)
+                                            power_usage = block.energy_metrics.get('power_usage', 0)
+                                            self.storage.save_block_metrics(block.block_index, block.timestamp, interval, consensus_time, power_usage)
+                                        except Exception as e:
+                                            print(f"[ANALYTICS] Failed saving block metrics during sync: {e}")
+                                        print(f"[SYNC] Adopted block {block.block_index} from {peer['id']}")
                                     except Exception as e:
-                                        print(f"[ANALYTICS] Failed saving block metrics during sync: {e}")
-                                    print(f"[SYNC] Adopted block {block.block_index} from {peer['id']}")
-                                except Exception as e:
-                                    print(f"[SYNC] Error processing block from {peer['id']}: {e}")
-                                    continue
+                                        print(f"[SYNC] Error processing block from {peer['id']}: {e}")
+                                        continue
                         elif len(peer_blocks_data) > len(self.blocks) and common_ancestor_index == -1:
                             # Chains have completely diverged, but peer is longer - adopt if genesis matches
                             if len(self.blocks) > 0 and len(peer_blocks_data) > 0:
