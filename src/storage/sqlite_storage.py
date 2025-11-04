@@ -84,6 +84,29 @@ class SQLiteStorage:
                 )
             ''')
             
+            # Table for resource metrics during blockchain operations
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS resource_operations (
+                    operation_id TEXT PRIMARY KEY,
+                    operation_type TEXT NOT NULL,
+                    block_index INTEGER,
+                    start_time REAL NOT NULL,
+                    end_time REAL NOT NULL,
+                    duration REAL NOT NULL,
+                    cpu_initial REAL,
+                    cpu_final REAL,
+                    cpu_avg REAL,
+                    memory_initial_mb REAL,
+                    memory_final_mb REAL,
+                    memory_delta_mb REAL,
+                    network_bytes_sent INTEGER,
+                    network_bytes_recv INTEGER,
+                    network_packets_sent INTEGER,
+                    network_packets_recv INTEGER,
+                    FOREIGN KEY (block_index) REFERENCES blocks(block_index) ON DELETE SET NULL
+                )
+            ''')
+            
             # Create indexes for better query performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_sender ON transactions(sender)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_recipient ON transactions(recipient)')
@@ -93,6 +116,9 @@ class SQLiteStorage:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_tx_lifecycle_block ON transaction_lifecycle(block_index)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_tx_lifecycle_received ON transaction_lifecycle(received_timestamp)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_tx_lifecycle_included ON transaction_lifecycle(included_timestamp)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_resource_operations_type ON resource_operations(operation_type)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_resource_operations_block ON resource_operations(block_index)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_resource_operations_start_time ON resource_operations(start_time)')
             
             conn.commit()
             conn.close()
@@ -270,6 +296,110 @@ class SQLiteStorage:
             ]
         except Exception as e:
             print(f"[STORAGE] Error exporting transaction lifecycle: {e}")
+            return []
+    
+    def save_resource_operation(self, operation_metrics: Dict[str, Any]) -> None:
+        """Save resource operation metrics to database."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # Extract block_index from operation_id if it's a validation/creation operation
+            block_index = None
+            operation_id = operation_metrics.get('operation_id', '')
+            if 'validate_block_' in operation_id or 'create_block_' in operation_id:
+                try:
+                    block_index = int(operation_id.split('_')[-1])
+                except (ValueError, IndexError):
+                    pass
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO resource_operations 
+                (operation_id, operation_type, block_index, start_time, end_time, duration,
+                 cpu_initial, cpu_final, cpu_avg, memory_initial_mb, memory_final_mb, memory_delta_mb,
+                 network_bytes_sent, network_bytes_recv, network_packets_sent, network_packets_recv)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                operation_metrics.get('operation_id'),
+                operation_metrics.get('operation_type'),
+                block_index,
+                operation_metrics.get('start_time'),
+                operation_metrics.get('end_time'),
+                operation_metrics.get('duration'),
+                operation_metrics.get('cpu_usage', {}).get('initial'),
+                operation_metrics.get('cpu_usage', {}).get('final'),
+                operation_metrics.get('cpu_usage', {}).get('avg'),
+                operation_metrics.get('memory_usage', {}).get('initial_mb'),
+                operation_metrics.get('memory_usage', {}).get('final_mb'),
+                operation_metrics.get('memory_usage', {}).get('memory_delta_mb'),
+                operation_metrics.get('network_usage', {}).get('bytes_sent'),
+                operation_metrics.get('network_usage', {}).get('bytes_recv'),
+                operation_metrics.get('network_usage', {}).get('packets_sent'),
+                operation_metrics.get('network_usage', {}).get('packets_recv')
+            ))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[STORAGE] Error saving resource operation: {e}")
+            raise
+    
+    def get_resource_operations(self, operation_type: str = None, start_time: float = None, end_time: float = None, limit: int = None) -> List[Dict[str, Any]]:
+        """Retrieve resource operation metrics from database."""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            query = 'SELECT * FROM resource_operations WHERE 1=1'
+            params = []
+            
+            if operation_type:
+                query += ' AND operation_type = ?'
+                params.append(operation_type)
+            if start_time:
+                query += ' AND start_time >= ?'
+                params.append(start_time)
+            if end_time:
+                query += ' AND start_time <= ?'
+                params.append(end_time)
+            
+            query += ' ORDER BY start_time DESC'
+            
+            if limit:
+                query += f' LIMIT {limit}'
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            conn.close()
+            
+            return [
+                {
+                    'operation_id': r[0],
+                    'operation_type': r[1],
+                    'block_index': r[2],
+                    'start_time': r[3],
+                    'end_time': r[4],
+                    'duration': r[5],
+                    'cpu_usage': {
+                        'initial': r[6],
+                        'final': r[7],
+                        'avg': r[8]
+                    },
+                    'memory_usage': {
+                        'initial_mb': r[9],
+                        'final_mb': r[10],
+                        'memory_delta_mb': r[11]
+                    },
+                    'network_usage': {
+                        'bytes_sent': r[12],
+                        'bytes_recv': r[13],
+                        'packets_sent': r[14],
+                        'packets_recv': r[15]
+                    }
+                } for r in rows
+            ]
+        except Exception as e:
+            print(f"[STORAGE] Error retrieving resource operations: {e}")
             return []
 
     def get_block(self, block_index: int) -> Optional[Block]:

@@ -234,7 +234,7 @@ class BlockchainMetrics:
                 }
             }
             
-            # Store metrics
+            # Store metrics in memory and persist to database
             with self._resource_lock:
                 self.resource_metrics_history.append(operation_metrics)
                 if operation_type in self.operation_metrics:
@@ -242,45 +242,53 @@ class BlockchainMetrics:
                     # Keep only last 50 operations per type
                     if len(self.operation_metrics[operation_type]) > 50:
                         self.operation_metrics[operation_type].pop(0)
+                
+                # Persist to database for long-term storage
+                try:
+                    self.storage.save_resource_operation(operation_metrics)
+                except Exception as e:
+                    print(f"[METRICS] Error persisting resource operation to database: {e}")
     
     def get_resource_metrics(self) -> Dict[str, Any]:
-        """Get comprehensive resource utilization metrics."""
+        """Get comprehensive resource utilization metrics (from database + recent memory)."""
+        # Load all operations from database for comprehensive data
+        db_operations = self.storage.get_resource_operations(limit=100)  # Get latest 100 from DB
+        
         with self._resource_lock:
-            # Build operation summaries, handling different operation types
+            # Combine database operations with recent in-memory ones
+            # Use a dict to deduplicate by operation_id
+            all_operations = {}
+            for op in db_operations:
+                all_operations[op['operation_id']] = op
+            for op in self.resource_metrics_history:
+                all_operations[op['operation_id']] = op
+            
+            recent_operations_list = list(all_operations.values())
+            # Sort by start_time descending (most recent first)
+            recent_operations_list.sort(key=lambda x: x.get('start_time', 0), reverse=True)
+            
+            # Build operation summaries by type from database
             operation_summaries = {}
-            for op_type, ops in self.operation_metrics.items():
-                if not ops:
+            for op_type in ['block_validation', 'block_creation', 'network_operations', 'database_operations']:
+                ops_of_type = self.storage.get_resource_operations(operation_type=op_type)
+                if not ops_of_type:
                     continue
                 
                 # Check if this is a block operation (has cpu_usage, memory_usage, network_usage)
                 if op_type in ['block_validation', 'block_creation']:
                     operation_summaries[op_type] = {
-                        'count': len(ops),
-                        'avg_duration': sum(op.get('duration', 0) for op in ops) / len(ops) if ops else 0,
-                        'avg_cpu': sum(op.get('cpu_usage', {}).get('avg', 0) for op in ops) / len(ops) if ops else 0,
-                        'avg_memory_delta': sum(op.get('memory_usage', {}).get('memory_delta_mb', 0) for op in ops) / len(ops) if ops else 0,
+                        'count': len(ops_of_type),
+                        'avg_duration': sum(op.get('duration', 0) for op in ops_of_type) / len(ops_of_type) if ops_of_type else 0,
+                        'avg_cpu': sum(op.get('cpu_usage', {}).get('avg', 0) for op in ops_of_type) / len(ops_of_type) if ops_of_type else 0,
+                        'avg_memory_delta': sum(op.get('memory_usage', {}).get('memory_delta_mb', 0) for op in ops_of_type) / len(ops_of_type) if ops_of_type else 0,
                         'total_network_bytes': sum(
                             op.get('network_usage', {}).get('bytes_sent', 0) + 
-                            op.get('network_usage', {}).get('bytes_recv', 0) for op in ops
+                            op.get('network_usage', {}).get('bytes_recv', 0) for op in ops_of_type
                         )
-                    }
-                elif op_type == 'network_operations':
-                    operation_summaries[op_type] = {
-                        'count': len(ops),
-                        'avg_duration': sum(op.get('duration', 0) for op in ops) / len(ops) if ops else 0,
-                        'total_bytes_transferred': sum(op.get('bytes_transferred', 0) for op in ops),
-                        'avg_throughput_mbps': sum(op.get('throughput_mbps', 0) for op in ops) / len(ops) if ops else 0
-                    }
-                elif op_type == 'database_operations':
-                    operation_summaries[op_type] = {
-                        'count': len(ops),
-                        'avg_duration': sum(op.get('duration', 0) for op in ops) / len(ops) if ops else 0,
-                        'total_rows_affected': sum(op.get('rows_affected', 0) for op in ops),
-                        'avg_throughput_rows_per_sec': sum(op.get('throughput_rows_per_sec', 0) for op in ops) / len(ops) if ops else 0
                     }
             
             return {
-                'recent_operations': list(self.resource_metrics_history),
+                'recent_operations': recent_operations_list[:100],  # Return latest 100
                 'operation_summaries': operation_summaries,
                 'current_system_state': {
                     'cpu_percent': psutil.cpu_percent(),
@@ -295,11 +303,16 @@ class BlockchainMetrics:
             }
     
     def get_operation_metrics(self, operation_type: str = None) -> Dict[str, Any]:
-        """Get detailed metrics for specific operation types."""
-        with self._resource_lock:
-            if operation_type:
-                return self.operation_metrics.get(operation_type, [])
-            return self.operation_metrics
+        """Get detailed metrics for specific operation types (from database)."""
+        # Load from database for persistent storage
+        if operation_type:
+            return self.storage.get_resource_operations(operation_type=operation_type)
+        else:
+            # Return all operations by type
+            result = {}
+            for op_type in ['block_validation', 'block_creation', 'network_operations', 'database_operations']:
+                result[op_type] = self.storage.get_resource_operations(operation_type=op_type)
+            return result
     
     def record_network_operation(self, operation: str, bytes_transferred: int, duration: float, success: bool = True):
         """Record network operation metrics."""

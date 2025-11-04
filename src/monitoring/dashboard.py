@@ -486,12 +486,13 @@ async def export_resource_metrics_csv():
         raise HTTPException(status_code=500, detail=f"Error exporting resource metrics: {str(e)}")
 
 @app.get("/api/export/operation-metrics.csv")
-async def export_operation_metrics_csv(operation_type: str = None):
-    """Export operation-specific metrics as CSV."""
+async def export_operation_metrics_csv(operation_type: str = None, block_index: int = None):
+    """Export operation-specific metrics as CSV (from database - persists across restarts)."""
     if metrics is None:
         raise HTTPException(status_code=500, detail="Metrics instance not initialized.")
     
     try:
+        # Now loads from database, so data persists across node restarts!
         operation_data = metrics.get_operation_metrics(operation_type)
         output = io.StringIO()
         
@@ -528,7 +529,7 @@ async def export_operation_metrics_csv(operation_type: str = None):
         else:
             # Block validation/creation operations
             fieldnames = [
-                "operation_id", "operation_type", "start_time", "end_time", "duration",
+                "operation_id", "operation_type", "block_index", "start_time", "end_time", "duration",
                 "cpu_initial", "cpu_final", "cpu_avg",
                 "memory_initial_mb", "memory_final_mb", "memory_delta_mb",
                 "network_bytes_sent", "network_bytes_recv", "network_packets_sent", "network_packets_recv"
@@ -538,6 +539,10 @@ async def export_operation_metrics_csv(operation_type: str = None):
         writer.writeheader()
         
         for operation in operations:
+            # Filter by block_index if specified
+            if block_index is not None and operation.get('block_index') != block_index:
+                continue
+                
             if operation_type == 'network_operations':
                 row = {
                     "operation": operation.get('operation', ''),
@@ -560,6 +565,7 @@ async def export_operation_metrics_csv(operation_type: str = None):
                 row = {
                     "operation_id": operation.get('operation_id', ''),
                     "operation_type": operation.get('operation_type', operation_type if operation_type else ''),
+                    "block_index": operation.get('block_index', ''),
                     "start_time": operation.get('start_time', 0),
                     "end_time": operation.get('end_time', 0),
                     "duration": operation.get('duration', 0),
@@ -577,6 +583,9 @@ async def export_operation_metrics_csv(operation_type: str = None):
             writer.writerow(row)
         
         output.seek(0)
+        # Add block_index to filename if filtering by block
+        if block_index is not None:
+            filename = filename.replace('.csv', f'-block{block_index}.csv')
         return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error exporting operation metrics: {str(e)}") 
